@@ -10,7 +10,7 @@ def parse_args():
     
     # Backward compatible: if omitted, we prompt like you do now
     p.add_argument(
-        "--imagePath",
+        "--imagepath",
         nargs="?",
         type=Path,
         help="Folder containing input .tif files"
@@ -52,7 +52,7 @@ def resolve_savepoint(images_dir: Path, sp: Path | None) -> Path | None:
 
 def main():
     args = parse_args()
-    filePath = args.imagePath or Path(input("Where are your images located?\n"))
+    filePath = args.imagepath or Path(input("Where are your images located?\n"))
     filePath = Path(filePath).expanduser()
 
     if args.testEnv:
@@ -85,9 +85,11 @@ def main():
         runFromSavePoint = False
     else:
         ##--Running from savepoint, grab user inputs from there ---
+        _, _, outputResults = genFct.getClassificationUserInputs(filePath)
         userInputList = genFct.load_user_inputs_json(saveFolder / "user_inputs.json")
         parameterFileLoc = saveFolder / "user_inputs.json"
         chCellCropLocation = filePath.joinpath("allch_positiveCells")
+        sampleNumber = len(list(chCellCropLocation.glob("*.tif")))
         runFromSavePoint = True
 
     if userInputList.removeSmallBadCrops:

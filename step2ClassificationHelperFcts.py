@@ -212,7 +212,7 @@ def loadCodebookSavepoint(filePath, userInputList):
     import joblib
 
     codebookFilesLoc = filePath.joinpath("codebookFiles")
-    sparse_dict_allimg_filename = f"sparse_dict_{userInputList.sparsityAlpha}_{userInputList.lassoAlpha}_{userInputList.initialDictSize}_ch{userInputList.chToClassify}_{userInputList.siftKeypointsLocation}key_{userInputList.siftThreshold}t_{userInputList.siftEdgeR}r_volsplitFalse_{userInputList.siftNormalization}norm.joblib"
+    sparse_dict_allimg_filename = f"sparse_dict_{userInputList.sparsityAlpha}_{userInputList.lassoAlpha}_{userInputList.dictionarySize}_ch{userInputList.chToClassify}_{userInputList.siftKeypointsLocation}key_{userInputList.siftThreshold}t_{userInputList.siftEdgeR}r_volsplitFalse_{userInputList.siftNormalization}norm.joblib"
     sparse_dictionary = joblib.load(codebookFilesLoc / sparse_dict_allimg_filename)  
 
     return sparse_dictionary
@@ -1184,35 +1184,35 @@ def patch_bbox(loc_zyx, size, imgBounds):
     return (z0, z1, y0, y1, x0, x1)
 
 
-def generateCodebook(allImagesCellFeatureDict, userInputList, filePath):
-  import numpy as np
-  import time
-  from sklearn.cluster import KMeans, MiniBatchKMeans
-  import faiss   # type: ignore
+# def generateCodebook(allImagesCellFeatureDict, userInputList, filePath):
+#   import numpy as np
+#   import time
+#   from sklearn.cluster import KMeans, MiniBatchKMeans
+#   import faiss   # type: ignore
 
-  print("creating the codebook now, k = " + str(userInputList.k))
-  start = time.time()
-  ###--- check to see if pre-generate codebook exists
-  saveName = f"codebook_{userInputList.k}k_{userInputList.cellSize}cellsize_{userInputList.zModifier}zMod.csv"
-  codebookFilesLoc = filePath.joinpath("codebookFiles")
-  codebookFilesLoc.mkdir(exist_ok = True)
-  if userInputList.codebookFile and codebookFilesLoc.joinpath(saveName).exists():
-    print("codebook found, loading now...")
-    codebook = np.loadtxt(codebookFilesLoc.joinpath(saveName), delimiter=",")
-  else:
-    print("codebook not found, generating one now....")
-    compiledDescriptors = np.concatenate([np.stack(imgData["feature"]) for imgData in allImagesCellFeatureDict.values()], axis=0)
-    faiss.omp_set_num_threads(10)  # Set based on your CPU cores
-    print("now running FAISS kmeans on flattened vectors...")
-    kmeansFAISS = faiss.Kmeans(d=compiledDescriptors.shape[1], k = userInputList.k, niter=190, verbose=True, nredo=1, seed=123)
-    kmeansFAISS.train(compiledDescriptors)
-    codebook = kmeansFAISS.centroids
+#   print("creating the codebook now, k = " + str(userInputList.k))
+#   start = time.time()
+#   ###--- check to see if pre-generate codebook exists
+#   saveName = f"codebook_{userInputList.k}k_{userInputList.cellSize}cellsize_{userInputList.zModifier}zMod.csv"
+#   codebookFilesLoc = filePath.joinpath("codebookFiles")
+#   codebookFilesLoc.mkdir(exist_ok = True)
+#   if userInputList.codebookFile and codebookFilesLoc.joinpath(saveName).exists():
+#     print("codebook found, loading now...")
+#     codebook = np.loadtxt(codebookFilesLoc.joinpath(saveName), delimiter=",")
+#   else:
+#     print("codebook not found, generating one now....")
+#     compiledDescriptors = np.concatenate([np.stack(imgData["feature"]) for imgData in allImagesCellFeatureDict.values()], axis=0)
+#     faiss.omp_set_num_threads(10)  # Set based on your CPU cores
+#     print("now running FAISS kmeans on flattened vectors...")
+#     kmeansFAISS = faiss.Kmeans(d=compiledDescriptors.shape[1], k = userInputList.k, niter=190, verbose=True, nredo=1, seed=123)
+#     kmeansFAISS.train(compiledDescriptors)
+#     codebook = kmeansFAISS.centroids
 
-    np.savetxt(codebookFilesLoc.joinpath(saveName), codebook, delimiter=",")
-    np.savetxt(codebookFilesLoc.joinpath("compiledDescriptors.csv"), compiledDescriptors, delimiter=",")
-    print("time to compute codebook..." + str(time.time() - start))
+#     np.savetxt(codebookFilesLoc.joinpath(saveName), codebook, delimiter=",")
+#     np.savetxt(codebookFilesLoc.joinpath("compiledDescriptors.csv"), compiledDescriptors, delimiter=",")
+#     print("time to compute codebook..." + str(time.time() - start))
 
-  return codebook
+#   return codebook
 
 
 

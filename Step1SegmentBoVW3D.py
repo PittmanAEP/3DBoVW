@@ -12,7 +12,7 @@ def parse_args():
 
     # Backward compatible: if omitted, we prompt like you do now
     p.add_argument(
-        "--imagePath",
+        "--imagepath",
         nargs="?",
         type=Path,
         help="Folder containing input .tif files"
@@ -28,9 +28,18 @@ def parse_args():
     )
 
     p.add_argument(
-        "--testEnv",
+        "--testenv",
         action="store_true",
         help = "test packages in environment, run if you just made a new environment or added new packages and want to check they work before running the full pipeline"
+    )
+
+    p.add_argument(
+        "--user-inputs-json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="JSON file with segmentation parameters (same shape as user_inputs.json written to the output folder). "
+        "Omitted keys use built-in defaults. Ignored when --savepoint is used.",
     )
 
     return p.parse_args()
@@ -46,10 +55,10 @@ def resolve_savepoint(images_dir: Path, sp: Path | None) -> Path | None:
 
 def main():
     args = parse_args()
-    filePath = args.imagePath or Path(input("Where are your images located?\n"))
+    filePath = args.imagepath or Path(input("Where are your images located?\n"))
     filePath = Path(filePath).expanduser()
 
-    if args.testEnv:
+    if args.testenv:
         genf.testingImports()
 
     if not filePath.exists():
@@ -60,7 +69,14 @@ def main():
         raise SystemExit(f"Savepoint folder does not exist: {saveFolder}")  
 
     if saveFolder is None:
-        userInputList, saveFolder = genf.getSegmentationUserInputs(filePath, saveFolder)
+        cfg_json = args.user_inputs_json
+        if cfg_json is not None:
+            cfg_json = Path(cfg_json).expanduser()
+            if not cfg_json.is_file():
+                raise SystemExit(f"User inputs JSON not found: {cfg_json}")
+        userInputList, saveFolder = genf.getSegmentationUserInputs(
+            filePath, saveFolder, user_inputs_json=cfg_json
+        )
         parameterFileLoc = genf.save_user_inputs_json(userInputList, saveFolder / "user_inputs.json", include_help = True)
         ##---Run Cellpose (+ optional nnUNet) segmentation ---
         seghf.runCellposeSegmentation(filePath, userInputList, saveFolder)
@@ -72,7 +88,6 @@ def main():
 
     #-----Refine cell crops -----
     anahf.sortCellCropsByChannelSignal(userInputList, saveFolder)
-    genf.refineSegmentationsSizeMatch(saveFolder, userInputList)
 
     ##--Generate metadata array ----
     metaDataFileName = anahf.generateMetaDataArray(saveFolder, userInputList)
@@ -80,10 +95,10 @@ def main():
     ##-- Prepare Streamlit visualization app ---
     streamlitFolder = saveFolder.joinpath("StreamlitApp")
     streamlitFolder.mkdir(exist_ok=True) 
-    streamhf.moveTifsToFolder(saveFolder, streamlitFolder)
+    streamhf.moveTifsToFolder(saveFolder, streamlitFolder, userInputList)
     finalMetaDataPath = saveFolder / metaDataFileName
-    streamhf.prepareImgsForSegmentationMaxProj(saveFolder)
-    streamhf.writeStreamlitAppSegmentation(streamlitFolder,finalMetaDataPath, parameterFileLoc)
+    streamhf.prepareImgsForSegmentationMaxProj(saveFolder, userInputList)
+    streamhf.writeStreamlitAppSegmentation(streamlitFolder,finalMetaDataPath, parameterFileLoc, userInputList)
 
 if __name__ == "__main__":
     main()

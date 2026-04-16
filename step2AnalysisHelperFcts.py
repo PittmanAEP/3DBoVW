@@ -2408,13 +2408,10 @@ def analyzeHarlickEDT(har_maps_by_image, saveFolder, userInputList):
 
 def analyzeAttention(saveFolder, userInputList, allImagesCellFeatureDict, codebook):
 
-    # compareHeatMapSegmentation(saveFolder, userInputList)
-    # compareAttentionEDTLevels(saveFolder, userInputList)
     analyzeAttentionMaps(saveFolder, userInputList)
-    # compareIntensityEDTLevels(saveFolder, userInputList)
     compareAttentionIntensity(userInputList, saveFolder)
-    pearsonCorrelationIntAttn(userInputList, saveFolder)
-    calcErrorPerPatchAndAnalyze(allImagesCellFeatureDict, codebook, saveFolder, userInputList)
+    # pearsonCorrelationIntAttn(userInputList, saveFolder)
+    # calcErrorPerPatchAndAnalyze(allImagesCellFeatureDict, codebook, saveFolder, userInputList)
 
 
 
@@ -3442,7 +3439,15 @@ def analyzeAttentionMaps(saveFolder, userInputList):
   for mapPath in refinedNames:
     tmpHeatMap = imread(mapPath)
     tmpNameOnly = mapPath.stem.rsplit("_attn_")[0]
-    condition = "Control" if "control" in tmpNameOnly.lower() else "LOF"
+    conditionLabel = userInputList.get_group_name(tmpNameOnly)
+    if conditionLabel is None:
+      print(
+        "[WARN] analyzeAttentionMaps: no classPatterns match for stem "
+        f"'{tmpNameOnly}' (classNames={userInputList.classNames}). Using 'Unassigned'."
+      )
+      condition = "Unassigned"
+    else:
+      condition = conditionLabel
     thresholdHeatMap = tmpHeatMap > thresholdValue
     negativeThresholdHeatMap = tmpHeatMap < (-1 * thresholdValue)
     labeledMask, num_features = label(thresholdHeatMap, structure=structure_6)  # type: ignore

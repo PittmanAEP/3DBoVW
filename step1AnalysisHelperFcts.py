@@ -1,49 +1,49 @@
 
-def stitchnnUNetImg(dataLoc, buffer):
-    from skimage.io import imread, imsave
-    import numpy as np
-    import re
-    import warnings
-    import SimpleITK as sitk
-    warnings.filterwarnings("ignore", category=UserWarning, message=".*low contrast image*")
+# def stitchnnUNetImg(dataLoc, buffer):
+#     from skimage.io import imread, imsave
+#     import numpy as np
+#     import re
+#     import warnings
+#     import SimpleITK as sitk
+#     warnings.filterwarnings("ignore", category=UserWarning, message=".*low contrast image*")
 
-    nnUNetMasksFolder = dataLoc.joinpath("nnUNetFolders/nnUNetPostProcessed")
-    cellposeMaskNames = list(dataLoc.rglob("*_CellposeMasks.tif"))
+#     nnUNetMasksFolder = dataLoc.joinpath("nnUNetFolders/nnUNetPostProcessed")
+#     cellposeMaskNames = list(dataLoc.rglob("*_CellposeMasks.tif"))
 
-    saveLocNnunetMasks = dataLoc.joinpath("nnUNetMasks")
-    saveLocNnunetMasks.mkdir(exist_ok=True)
+#     saveLocNnunetMasks = dataLoc.joinpath("nnUNetMasks")
+#     saveLocNnunetMasks.mkdir(exist_ok=True)
 
-    for cellposeFile in cellposeMaskNames:
-        folderName = cellposeFile.name.split("_CellposeMasks.tif")[0]
-        print("Working on..."+str(folderName))        
+#     for cellposeFile in cellposeMaskNames:
+#         folderName = cellposeFile.name.split("_CellposeMasks.tif")[0]
+#         print("Working on..."+str(folderName))        
 
-        cellPoseMaskFile = imread(cellposeFile)
-        nnunetFiles = list(nnUNetMasksFolder.glob("*.nrrd"))
-        stitchedImage = np.zeros(cellPoseMaskFile.shape)
+#         cellPoseMaskFile = imread(cellposeFile)
+#         nnunetFiles = list(nnUNetMasksFolder.glob("*.nrrd"))
+#         stitchedImage = np.zeros(cellPoseMaskFile.shape)
 
-        for mask in nnunetFiles:
-            ##make sure that the file comes from the right image            
-            name = mask.stem 
-            tmpCellNumber = name.split("_")[-1]
-            sourceFileName = name.rsplit("_",1)[0]
+#         for mask in nnunetFiles:
+#             ##make sure that the file comes from the right image            
+#             name = mask.stem 
+#             tmpCellNumber = name.split("_")[-1]
+#             sourceFileName = name.rsplit("_",1)[0]
             
-            if folderName in sourceFileName:
-                tmpMask = sitk.ReadImage(mask)
-                tmpMaskArray = sitk.GetArrayFromImage(tmpMask)  
-                cellPoseCopy = np.copy(cellPoseMaskFile)
-                cellPoseCopy[cellPoseCopy != int(tmpCellNumber)] = 0
+#             if folderName in sourceFileName:
+#                 tmpMask = sitk.ReadImage(mask)
+#                 tmpMaskArray = sitk.GetArrayFromImage(tmpMask)  
+#                 cellPoseCopy = np.copy(cellPoseMaskFile)
+#                 cellPoseCopy[cellPoseCopy != int(tmpCellNumber)] = 0
 
-                nonZeroList = np.nonzero(cellPoseCopy)
-                zLow, zHigh, yLow, yHigh, xLow, xHigh = addBufferToCrop(nonZeroList, buffer=buffer, origMasks=cellPoseCopy)
-                tmpBlock = stitchedImage[zLow:zHigh, yLow:yHigh, xLow:xHigh]
-                tmpBlock[tmpBlock == 0] += tmpMaskArray[tmpBlock == 0]*int(tmpCellNumber)
-                # tmpBlock[tmpBlock == 0] += tmpMaskArray[tmpBlock == 0]*int(tmpCellNumber)
-                stitchedImage[zLow:zHigh, yLow:yHigh, xLow:xHigh] = tmpBlock
+#                 nonZeroList = np.nonzero(cellPoseCopy)
+#                 zLow, zHigh, yLow, yHigh, xLow, xHigh = addBufferToCrop(nonZeroList, buffer=buffer, origMasks=cellPoseCopy)
+#                 tmpBlock = stitchedImage[zLow:zHigh, yLow:yHigh, xLow:xHigh]
+#                 tmpBlock[tmpBlock == 0] += tmpMaskArray[tmpBlock == 0]*int(tmpCellNumber)
+#                 # tmpBlock[tmpBlock == 0] += tmpMaskArray[tmpBlock == 0]*int(tmpCellNumber)
+#                 stitchedImage[zLow:zHigh, yLow:yHigh, xLow:xHigh] = tmpBlock
 
-                imsave(saveLocNnunetMasks.joinpath("nnUNetMask_"+name+".tif"), tmpMaskArray)
+#                 imsave(saveLocNnunetMasks.joinpath("nnUNetMask_"+name+".tif"), tmpMaskArray)
                 
-        saveName = cellposeFile.parent.joinpath(folderName+"_nnUNetMasks.tif")
-        imsave(saveName, stitchedImage)
+#         saveName = cellposeFile.parent.joinpath(folderName+"_nnUNetMasks.tif")
+#         imsave(saveName, stitchedImage)
         
 
 
@@ -85,8 +85,8 @@ def generateMetaDataArray(saveFolder, userInput):
     import numpy as np
     import pandas as pd
     from skimage.io import imread
-
-    print("Generating metadata array now...")
+    if userInput.verboseMessages:
+        print("Generating metadata array now...")
     allChPosFolder = saveFolder.joinpath("allch_positiveCells")
     allChPosFileList = list(allChPosFolder.rglob("*hyperstack.tif"))
     numberSplits = len(allChPosFileList[0].stem.split("_"))
@@ -189,157 +189,144 @@ def sortCellCropsByChannelSignal(userInputList, saveFolder):
     from scipy import stats
     warnings.filterwarnings("ignore", category=UserWarning, message=".*low contrast image*")
 
-    ##---- Get User Preferences
     signalThreshold = userInputList.signalThreshold
+    seg_ch = userInputList.segmentationChannel
+    required = list(dict.fromkeys(userInputList.requiredChannels))
+
+    def passes_intensity_threshold(avg, bg):
+        if np.isnan(avg):
+            return False
+        return avg > (bg + bg * signalThreshold)
+
+    def channel_positive_folder(c):
+        p = saveFolder.joinpath(f"adjustedChannels/ch{c}_positiveCells")
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     folderPaths = list(saveFolder.glob("img*"))
-    #---- Set up folder paths
     intensityResults = []
 
-    folderLocCh1Positive = saveFolder.joinpath("adjustedChannels/ch1_positiveCells")
-    folderLocCh1Positive.mkdir(parents=True, exist_ok = True)
-    
     folderLocAllChPositive = saveFolder.joinpath("allch_positiveCells")
-    folderLocAllChPositive.mkdir(exist_ok = True)
+    folderLocAllChPositive.mkdir(exist_ok=True)
 
-    #--- Sort cells into folders for positive signal
-    print("Now sorting cell crops by signal in various channels...")
+    if userInputList.verboseMessages:
+        print("Now sorting cell crops by signal in various channels...")
+
     for folder in folderPaths:
-        imgNameOnly = folder.name.rsplit('img_')[1]
+        imgNameOnly = folder.name.rsplit("img_")[1]
         mask = folder / f"{imgNameOnly}_CellposeMasks.tif"
-        tmpMask = imread(mask) 
-        print(f"Working on...{imgNameOnly}")
+        tmpMask = imread(mask)
+        if userInputList.verboseMessages:
+            print(f"Working on...{imgNameOnly}")
 
-        tmpImageFolder = folder
-        tmpCropFolderLoc = tmpImageFolder.joinpath("crops")
-        tmpCellposeMaskFolder = tmpImageFolder.joinpath("maskCropsCellpose")
+        tmpCropFolderLoc = folder.joinpath("crops")
+        tmpCellposeMaskFolder = folder.joinpath("maskCropsCellpose")
 
         tmpHyperstackWholeImg = tiff.imread(folder / f"{imgNameOnly}.tif")
-        channelIndex = [i for i, dim in enumerate(tmpHyperstackWholeImg.shape) if dim <= 5]
-        tmpHyperstack = np.moveaxis(tmpHyperstackWholeImg, channelIndex, 0)
+        if tmpHyperstackWholeImg.ndim == 4:
+            channelIndex = [i for i, dim in enumerate(tmpHyperstackWholeImg.shape) if dim <= 5]
+            tmpHyperstack = np.moveaxis(tmpHyperstackWholeImg, channelIndex, 0)
+        else:
+            tmpHyperstack = tmpHyperstackWholeImg
+        if tmpHyperstack.ndim == 3:
+            tmpHyperstack = tmpHyperstack[np.newaxis, ...]
         nChannel = tmpHyperstack.shape[0]
-        
-        if nChannel >= 3:
-            folderLocCh2Positive = saveFolder.joinpath("adjustedChannels/ch2_positiveCells")
-            folderLocCh2Positive.mkdir(exist_ok = True)
 
-        if nChannel > 3:
-            folderLocCh3Positive = saveFolder.joinpath("adjustedChannels/ch3_positiveCells")
-            folderLocCh3Positive.mkdir(exist_ok = True)
+        # Required channels for gating: user list minus segmentation channel; skip indices not in this image
+        channels_required = [
+            c for c in required
+            if c != seg_ch and 0 <= c < nChannel
+        ]
+        
+        if userInputList.verboseMessages:
+            skipped = [c for c in required if c >= nChannel or c < 0]
+            if skipped:
+                print(f"  (skipping required channels not in stack {nChannel} ch): {skipped}")
+            print(f"  intensity gate on channels (excl. seg ch {seg_ch}): {channels_required}")
 
         whole_img_bg = np.empty(nChannel, dtype=np.int32)
         for channel in range(nChannel):
-            tmpChannel = tmpHyperstack[channel,:,:,:]
+            tmpChannel = np.array(tmpHyperstack[channel, :, :, :], copy=True)
             tmpChannel[tmpMask != 0] = 0
-            imgAvg = int(np.mean(tmpChannel[tmpChannel>0]))
-            imgMode = int(stats.mode(tmpChannel[tmpChannel>0],axis=None)[0]) # type: ignore
-            whole_img_bg[channel] = imgAvg if imgMode == 0 else imgMode
+            outside = tmpChannel[tmpChannel > 0]
+            if outside.size == 0:
+                whole_img_bg[channel] = 0
+            else:
+                imgAvg = int(np.mean(outside))
+                imgMode = int(stats.mode(outside, axis=None)[0])  # type: ignore
+                whole_img_bg[channel] = imgAvg if imgMode == 0 else imgMode
 
-        vals = [whole_img_bg[i] if i < len(whole_img_bg) else None for i in range(4)]
-        wholeImgAvgCh0, wholeImgAvgCh1, wholeImgAvgCh2, wholeImgAvgCh3 = vals
+        if userInputList.verboseMessages:
+            parts = [f"ch{i}: {whole_img_bg[i]}" for i in range(nChannel)]
+            print("  whole image bg " + ", ".join(parts))
 
-        # print(f"whole image avgs: ch0: {wholeImgAvgCh0}, ch1: {wholeImgAvgCh1}, ch2: {wholeImgAvgCh2}, ch3: {wholeImgAvgCh3}")
-        
         numCellID = int(np.max(tmpMask))
         with alive_bar(numCellID) as bar:
-            for cellID in range(1, numCellID+1):
+            for cellID in range(1, numCellID + 1):
                 cellIDExistsBool = len(list(tmpCropFolderLoc.glob(f"*_cell_crop_{cellID}.tif"))) > 0
                 if cellID in tmpMask and cellIDExistsBool:
-                    tmpCellCrop = imread(list(tmpCropFolderLoc.glob(f"{imgNameOnly}_cell_crop_{cellID}.tif"))[0])
-                    
-                    tmpMaskPath = next(tmpCellposeMaskFolder.glob(f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif"))
+                    tmpCellCrop = imread(
+                        list(tmpCropFolderLoc.glob(f"{imgNameOnly}_cell_crop_{cellID}.tif"))[0]
+                    )
+                    if tmpCellCrop.ndim == 3:
+                        tmpCellCrop = tmpCellCrop[np.newaxis, ...]
+                    tmpMaskPath = next(
+                        tmpCellposeMaskFolder.glob(f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif")
+                    )
                     tmpMaskCrop = imread(tmpMaskPath)
-                    
-                    ch1Positive = False
-                    ch2Positive = False
-                    ch3Positive = False 
 
-                    tmpImgCh0 = np.copy(tmpCellCrop[0,:,:,:])
-                    tmpImgCh0[tmpMaskCrop == 0] = 0
-                    filteredCh0 = tmpImgCh0
-                    # print(f"{tmpImageName} image and channel 0 mean: {np.mean(filteredCh0)} for cell {cellID}")
-                    avgCh0 = np.mean(filteredCh0[filteredCh0>0]) 
-                    tmpImgCh1 = np.copy(tmpCellCrop[1,:,:,:])
-                    tmpImgCh1[tmpMaskCrop == 0] = 0
-                    filteredCh1 = tmpImgCh1
-                    avgCh1 = np.mean(filteredCh1[filteredCh1>0])
-                    # print(f"{tmpImageName} image and channel 1 mean: {np.mean(filteredCh1)} for cell {cellID}")
+                    avg = np.full(nChannel, np.nan, dtype=np.float64)
+                    for c in range(nChannel):
+                        tmpImg = np.copy(tmpCellCrop[c, :, :, :])
+                        tmpImg[tmpMaskCrop == 0] = 0
+                        inside = tmpImg[tmpImg > 0]
+                        if inside.size > 0:
+                            avg[c] = np.mean(inside)
 
-                    if avgCh1 > (wholeImgAvgCh1 + wholeImgAvgCh1*signalThreshold):
-                        ch1Positive = True
-                        # print(f"Cell number {cellID} is positive for channel 1")
-                        imsave(folderLocCh1Positive.joinpath(imgNameOnly+"_cell_crop_"+str(cellID)+"_hyperstack.tif"), tmpCellCrop)
-                        imsave(folderLocCh1Positive.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif"), tmpMaskCrop)
+                    for c in range(nChannel):
+                        if c == seg_ch:
+                            continue
+                        if passes_intensity_threshold(avg[c], whole_img_bg[c]):
+                            fpos = channel_positive_folder(c)
+                            imsave(
+                                fpos.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_hyperstack.tif"),
+                                tmpCellCrop,
+                            )
+                            imsave(
+                                fpos.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif"),
+                                tmpMaskCrop,
+                            )
 
-                    if nChannel > 2:
-                        # filteredCh2 = filteredHyperstack[2,:,:,:]
-                        tmpImgCh2 = np.copy(tmpCellCrop[2,:,:,:])
-                        tmpImgCh2[tmpMaskCrop == 0] = 0
-                        filteredCh2 = tmpImgCh2 
-                        avgCh2 = np.mean(filteredCh2[filteredCh2>0])
-                        # print(f"{tmpImageName} image and channel 2 mean: {np.mean(filteredCh2)}")
-                        if userInputList.requireCh2:
-                            if avgCh2 > (wholeImgAvgCh2 + wholeImgAvgCh2*signalThreshold):
-                                ch2Positive = True
-                                # print(f"Cell number {cellID} is positive for channel 2")
-                                imsave(folderLocCh2Positive.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_hyperstack.tif"), tmpCellCrop)
-                                imsave(folderLocCh2Positive.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif"), tmpMaskCrop)
-                        else:
-                            #user doesn't require ch2 so this is always positive 
-                            ch2Positive = True
-                    if nChannel > 3:
-                        tmpImgCh3 = np.copy(tmpCellCrop[3,:,:,:])
-                        tmpImgCh3[tmpMaskCrop == 0] = 0
-                        filteredCh3 = tmpImgCh3
-                        avgCh3 = np.mean(filteredCh3[filteredCh3>0])
-                        # print(f"{tmpImageName} image and channel 3 mean: {np.mean(filteredCh3)} for cell {cellID}")
-                        if avgCh3 > (wholeImgAvgCh3 + wholeImgAvgCh3*signalThreshold):
-                            ch3Positive = True
-                            # print(f"Cell number {cellID} is positive for channel 3")
-                            imsave(folderLocCh3Positive.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_hyperstack.tif"), tmpCellCrop)
-                            imsave(folderLocCh3Positive.joinpath(f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif"), tmpMaskCrop)
+                    all_required = all(
+                        passes_intensity_threshold(avg[c], whole_img_bg[c]) for c in channels_required
+                    )
 
-                    fourChBool = nChannel==4 and ch1Positive and ch2Positive and ch3Positive
-                    threeChBool = nChannel==3 and ch1Positive and ch2Positive
-
-                    if fourChBool or threeChBool:
+                    if all_required:
                         tmpCropName = f"{imgNameOnly}_cell_crop_{cellID}"
-                        if fourChBool:
-                            intensityResults.append({
-                                "baseName": tmpCropName,
-                                "wholeImgCh0": wholeImgAvgCh0,
-                                "cellCropCh0": avgCh0,
-                                "ch0SNR": avgCh0 / wholeImgAvgCh0, # pyright: ignore[reportOperatorIssue]
-                                "wholeImgCh1": wholeImgAvgCh1,
-                                "cellCropCh1": avgCh1,
-                                "ch1SNR": avgCh1 / wholeImgAvgCh1, # pyright: ignore[reportOperatorIssue]
-                                "wholeImgCh2": wholeImgAvgCh2,
-                                "cellCropCh2": avgCh2,
-                                "ch2SNR": avgCh2 / wholeImgAvgCh2, # pyright: ignore[reportOperatorIssue]
-                                "wholeImgCh3": wholeImgAvgCh3,
-                                "cellCropCh3": avgCh3,
-                                "ch3SNR": avgCh3 / wholeImgAvgCh3, # pyright: ignore[reportOperatorIssue]
-                            })
-                        if threeChBool:
-                            intensityResults.append({
-                                "baseName": tmpCropName,
-                                "wholeImgCh0": wholeImgAvgCh0,
-                                "cellCropCh0": avgCh0,
-                                "ch0SNR": avgCh0 / wholeImgAvgCh0, # pyright: ignore[reportOperatorIssue]
-                                "wholeImgCh1": wholeImgAvgCh1,
-                                "cellCropCh1": avgCh1,
-                                "ch1SNR": avgCh1 / wholeImgAvgCh1, # pyright: ignore[reportOperatorIssue]
-                                "wholeImgCh2": wholeImgAvgCh2,
-                                "cellCropCh2": avgCh2,
-                                "ch2SNR": avgCh2 / wholeImgAvgCh2 # pyright: ignore[reportOperatorIssue]
-                            })
-                        imsave(folderLocAllChPositive / f"{imgNameOnly}_cell_crop_{cellID}_hyperstack.tif", tmpCellCrop)
-                        imsave(folderLocAllChPositive / f"{imgNameOnly}_cell_crop_{cellID}_ch0.tif", tmpCellCrop[0,:,:,:])
-                        imsave(folderLocAllChPositive / f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif", tmpMaskCrop)
+                        row = {"baseName": tmpCropName}
+                        for c in range(nChannel):
+                            bg = float(whole_img_bg[c])
+                            a = float(avg[c])
+                            row[f"wholeImgCh{c}"] = int(whole_img_bg[c])
+                            row[f"cellCropCh{c}"] = a if not np.isnan(a) else np.nan
+                            row[f"ch{c}SNR"] = (a / bg) if (bg != 0 and not np.isnan(a)) else np.nan
+                        intensityResults.append(row)
 
-                    bar()
-        
-        dataFrame = pd.DataFrame(intensityResults)
-        dataFrame.to_excel(saveFolder.joinpath("cell_intensities_SNR.xlsx")) 
+                        imsave(
+                            folderLocAllChPositive / f"{imgNameOnly}_cell_crop_{cellID}_hyperstack.tif",
+                            tmpCellCrop,
+                        )
+                        imsave(
+                            folderLocAllChPositive / f"{imgNameOnly}_cell_crop_{cellID}_ch0.tif",
+                            tmpCellCrop[0, :, :, :],
+                        )
+                        imsave(
+                            folderLocAllChPositive / f"{imgNameOnly}_cell_crop_{cellID}_CellposeMask.tif",
+                            tmpMaskCrop,
+                        )
 
+                bar()
+
+    pd.DataFrame(intensityResults).to_excel(saveFolder.joinpath("cell_intensities_SNR.xlsx"))
 
 

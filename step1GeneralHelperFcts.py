@@ -29,46 +29,62 @@ from dataclasses import dataclass, field, fields, is_dataclass, asdict
 from pathlib import Path
 import json
 from typing import Any, Dict
+import re
 
 @dataclass
 class UserInputs:
-    buffer: int = field(default=10, metadata={"help": "Padding (pixels/voxels) added around the detected region."})
-    cropValue: int = field(default=10, metadata={"help": "Crop margin. cropStart=cropValue, cropEnd=min(-cropValue,-1)."})
+    ##--- General Parameters --##    
+    # singleChannel: bool = field(default=False, metadata={"help": "If True, expect single-channel input and skip checks for multiple channels."})
     segmentationChannel: int = field(default=1, metadata={"help": "Channel index used for segmentation input."})
+    requiredChannels: list[int] = field(default_factory=lambda: [1, 2], metadata={"help": "Channel indices that must pass the intensity-vs-background test for a crop to be kept. segmentationChannel is never tested. Indices >= channel count in an image are skipped for that image."})
     signalThreshold: float = field(default=0.25, metadata={"help": "Threshold applied to signal when generating segmentation classes."})
-    specifyColNames: str = field(default="n", metadata={"help": "Column name specifier / prefix used for dataframe outputs."})
-    chToThreshold: int = field(default=1, metadata={"help": "Channel used for intensity thresholding step."})
-    verboseMessages: bool = field(default=True, metadata={"help": "If True, print verbose debugging messages."})
-    levelErode: list = field(default_factory=lambda: [2, 2, 2], metadata={"help": "Erosion levels per axis (e.g., [Z,Y,X] or [X,Y,Z] depending on your convention)."})
-    nnunetCh: int = field(default=0, metadata={"help": "nnUNet channel index if using nnUNet masks."})
-    segmentationMaskChoice: str = field(default="Cellpose", metadata={"help": "Mask source: 'Cellpose' or 'nnUNet'."})
-    requireCh2: bool = field(default=True, metadata={"help": "If True, require channel 2 to be present for processing."})
-    matchKirby: bool = field(default=False, metadata={"help": "If True, apply Kirby-style matching/normalization steps."})
-    filterLowHoechst: bool = field(default=False, metadata={"help": "Filter out samples with low Hoechst intensity."})
-    filterSmallSize: bool = field(default=False, metadata={"help": "Filter out samples that are too small."})
-    ##cellpose parameters
+    verboseMessages: bool = field(default=True, metadata={"help": "If True, print verbose debugging messages."})    
+    classNames: list[str] = field(default_factory=lambda: ["Control", "LOF"],
+        metadata={"help": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -."}
+    )
+
+    ##--- Cellpose Parameters ----##
     flow_threshold:float = field(default = 0.4, metadata={"help": "Cellpose flow threshold parameter. Lower this is you see merged cell masks."})
     cellprob_threshold: float = field(default=0.0, metadata={"help": "Cellpose cell probability threshold parameter. Lower values will yield more masks, including more false positives potentially."})
     tile_norm_blocksize: int = field(default=100, metadata={"help": "Cellpose tile normalization block size parameter. Reduce if running into memory usage issues."})
     minSize: int = field(default=9000, metadata={"help": "Minimum cell size parameter."})
     zAxis: int = field(default=0, metadata={"help": "Z-axis parameter for 3D segmentation."})
+    buffer: int = field(default=10, metadata={"help": "X-Y padding (pixels/voxels) added around the detected region."})
+    imgZCropValue: int = field(default=10, metadata={"help": "Crop margin for the z-dimension for the entire image. cropStart=cropValue, cropEnd=min(-cropValue,-1)."})
+
+
+    @staticmethod
+    def parse_name(name: str) -> list[str]:
+        parts = re.split(r"[_\-\s]+", name)
+        return [
+            re.sub(r"[^a-z0-9]", "", part.lower())
+            for part in parts
+            if part.strip()
+        ]
+
+    @property
+    def classPatterns(self) -> list[list[str]]:
+        return [self.parse_name(name) for name in self.classNames]
+
 
     @property
     def cropStart(self) -> int:
-        return self.cropValue
+        return self.imgZCropValue
 
     @property
     def cropEnd(self) -> int:
-        return min(-self.cropValue, -1)
+        return min(-self.imgZCropValue, -1)
 
 
 
-def getSegmentationUserInputs(filePath, saveFolder):
-    
-    userInputList = UserInputs()
+def getSegmentationUserInputs(filePath, saveFolder, user_inputs_json=None):
+    if user_inputs_json is not None:
+        userInputList = load_user_inputs_json(Path(user_inputs_json))
+    else:
+        userInputList = UserInputs()
     ##make new folder and save all results there
     if saveFolder is None:
-        print("now making a new folder to save results in...")
+        
         parentFolder = filePath.parent
         saveFolderName = f"{filePath.name}_Segmentation_ch{userInputList.segmentationChannel}"
         saveFolder = parentFolder.joinpath(saveFolderName)
@@ -83,6 +99,9 @@ def getSegmentationUserInputs(filePath, saveFolder):
             saveFolder.mkdir()
 
         printUserInputs(userInputList, filePath)
+        if userInputList.verboseMessages:
+            print("now making a new folder to save results in...")
+            print(f"save folder: {saveFolder}")
     return userInputList, saveFolder
 
 
@@ -170,348 +189,4 @@ def load_user_inputs_json(json_path, cls = UserInputs, merge_with_defaults: bool
         return cls(**filtered)
 
 
-
-
-
-def compileChCellCrops(saveFolder,userInputList):
-    from skimage.io import imread, imsave
-    import numpy as np
-    import warnings 
-
-    saveName = "ch"+str(userInputList.chToClassify)+"Crops"
-    ch2CropFolder = saveFolder.joinpath(saveName)
-    if not ch2CropFolder.exists():
-        ch2CropFolder.mkdir()
-
-    allChFolder = saveFolder.joinpath("allch_positiveCells")
-    allChHyperList = list(allChFolder.rglob("*hyperstack*.tif"))
-
-    adChFolder = saveFolder.joinpath("adjustedChannels")
-    chPosFolderName = "ch"+str(userInputList.chToClassify)+"_positiveCells"
-    chPosFolderName = adChFolder.joinpath(chPosFolderName)
-
-    maskList = list(chPosFolderName.rglob("*mask*.tif"))
-
-    for file in maskList:
-        tmpFile = imread(file)
-        imsave(ch2CropFolder.joinpath(file.name), tmpFile)
-
-    for hyperstack in allChHyperList:
-        tmpHyper = imread(hyperstack)
-        tmpName = hyperstack.stem.replace("_hyperstack","")
-        if tmpHyper.shape[-1] < 5:
-            tmpHyper = np.transpose(tmpHyper,(3,0,1,2))
-        tmpch = tmpHyper[userInputList.chToClassify,:,:,:]
-        strMatch = "_ch"+str(userInputList.chToClassify)+".tif"
-        imsave(ch2CropFolder.joinpath(tmpName+strMatch), tmpch)
-
-    ch2CellCropList = list(ch2CropFolder.glob("*.tif"))
-    return ch2CellCropList, ch2CropFolder
-
-
-
-def countCells(folderLoc, cellCountDF, countCondition):
-    from pathlib import Path
-    import pandas as pd
-    from collections import defaultdict
-
-    if countCondition == "all masks":
-        print("counting all masks")
-        countDict = defaultdict(int)
-        folderNames = [p for p in folderLoc.glob("*_image_*") if p.is_dir()]
-        listOfNames = [path.name.rsplit("_image_")[0] for path in folderNames]
-        conditionList = list(set(listOfNames))
-
-        for condition in conditionList:
-            conditionFolderList = [folder for folder in folderNames if condition in folder.name]
-            for folder in conditionFolderList:
-                cellCrops = list(folder.rglob("*_cell_crop*.tif"))
-                refinedCellCrops = [crop for crop in cellCrops if "Cellpose" not in crop.name]
-                countDict[condition] += len(refinedCellCrops)
-        
-        counts_df = pd.DataFrame({
-            "condition": list(countDict.keys()),
-            "total cellpose masks": list(countDict.values())})        
-        cellCountDF = pd.merge(cellCountDF, counts_df, on="condition", how="outer")
-    
-    if countCondition != "all masks":
-        print(f"counting after {countCondition}")
-        countDict = defaultdict(int)
-        listOfCells = folderLoc.glob("*_ch0.tif")
-        for file in listOfCells:
-            conditionName = file.name.rsplit("_image_")[0]
-            countDict[conditionName] += 1 
-
-        if countCondition == "match Kirby":
-            counts_df = pd.DataFrame({
-                "condition": list(countDict.keys()),
-                "matched with Kirby": list(countDict.values())})        
-            cellCountDF = pd.merge(cellCountDF, counts_df, on="condition", how="outer")             
-        elif countCondition == "post Hoechst":
-            counts_df = pd.DataFrame({
-                "condition": list(countDict.keys()),
-                "above Hoechst threshold": list(countDict.values())}) 
-            cellCountDF = pd.merge(cellCountDF, counts_df, on="condition", how="outer")
-        elif countCondition == "3ch positive":
-            counts_df = pd.DataFrame({
-                "condition": list(countDict.keys()),
-                "3-ch positive": list(countDict.values())}) 
-            cellCountDF = pd.merge(cellCountDF, counts_df, on="condition", how="outer")
-        elif countCondition == "removed small":
-            counts_df = pd.DataFrame({
-                "condition": list(countDict.keys()),
-                "above volume threshold": list(countDict.values())}) 
-            cellCountDF = pd.merge(cellCountDF, counts_df, on="condition", how="outer")
-
-    return cellCountDF
-
-
-def refineSegmentationsSizeMatch(saveFolder, userInputList):
-    import pandas as pd
-    import shutil
-    from collections import defaultdict
-    from skimage.io import imread
-    import numpy as np
-
-    ##--Set up paths ---
-    chCellCropLocation = saveFolder / "allch_positiveCells"
-    badFolderLocation = saveFolder.joinpath("badCrops")
-    badFolderLocation.mkdir(exist_ok = True)  
-    excelFileFolder = saveFolder / "overlapKirbyFiles"
-    parameterFileLoc = saveFolder / "cropFilterParameters.txt"
-
-    ##--Initialize counts---
-    movedCountCGN = 0
-    movedCountGNP = 0
-    keptCountGNP = 0
-    keptCountCGN = 0
-    
-    lowSignalRemovedCGN = 0   
-    lowSignalRemovedGNP = 0 
-    lowSizeRemovedCGN = 0
-    lowSizeRemovedGNP = 0 
-
-    ##--Initialize dataframe to keep track of moved cells --- 
-    
-    cellCountDF = pd.DataFrame(columns=["condition"])
-    cellCountDF = countCells(saveFolder, cellCountDF, "all masks")
-    cellCountDF = countCells(chCellCropLocation, cellCountDF, "3ch positive")
-
-    ##--Remove low signal and low size if desired ---
-    if userInputList.filterLowHoechst:
-        imgList = list(chCellCropLocation.glob("*ch0.tif"))
-        for img in imgList:
-            tmpCh0Img = imread(img)
-            tmpch0ImgName = img.stem
-            tmpCellposeMaskName = chCellCropLocation.joinpath(tmpch0ImgName.replace("_ch0","_CellposeMask.tif"))
-            tmpMask = imread(tmpCellposeMaskName)
-            bgPixelsOnly = tmpCh0Img[tmpMask == 0]
-            avgBgValue = np.mean(bgPixelsOnly)
-            signalPixels = tmpCh0Img[tmpMask > 0]
-            avgSignal = np.mean(signalPixels)
-            cropSize = np.sum(tmpMask)            
-            if avgSignal < (avgBgValue + avgBgValue*.25):
-                # print(f"Hoecht signal for {tmpch0ImgName} was too low, signal {avgSignal} to bg {avgBgValue}")
-                if "CGN" in img.stem:
-                    lowSignalRemovedCGN += 1
-                if "GNP" in img.stem:
-                    lowSignalRemovedGNP += 1
-                strToMove = img.stem.rsplit("_",1)[0]
-                # print(f"string match to move was {strToMove}")
-                listToMove = list(chCellCropLocation.glob(f"*{strToMove}_*.tif"))
-                for file in listToMove:            
-                    shutil.move(file, badFolderLocation.joinpath(file.name))
-
-        cellCountDF = countCells(chCellCropLocation, cellCountDF, "post Hoechst")
-
-    if userInputList.filterSmallSize:
-        imgList = list(chCellCropLocation.rglob("*ch0.tif"))
-        for img in imgList:
-            tmpCh0Img = imread(img)
-            tmpch0ImgName = img.stem
-            tmpCellposeMaskName = chCellCropLocation.joinpath(tmpch0ImgName.replace("_ch0","_CellposeMask.tif"))
-            tmpMask = imread(tmpCellposeMaskName)
-            bgPixelsOnly = tmpCh0Img[tmpMask == 0]
-            avgBgValue = np.mean(bgPixelsOnly)
-            signalPixels = tmpCh0Img[tmpMask > 0]
-            avgSignal = np.mean(signalPixels)
-            cropSize = np.sum(tmpMask)        
-            if cropSize < 12000:
-                print(f"Size for {tmpch0ImgName} was too low, size was {cropSize}")
-                if "CGN" in img.stem:
-                    lowSizeRemovedCGN += 1
-                if "GNP" in img.stem:
-                    lowSizeRemovedGNP += 1
-                strToMove = img.stem.rsplit("_",1)[0]
-                listToMove = list(chCellCropLocation.glob(f"*{strToMove}_*.tif"))
-                for file in listToMove:            
-                    shutil.move(file, badFolderLocation.joinpath(file.name))
-        cellCountDF = countCells(chCellCropLocation, cellCountDF, "removed small")
-    
-    ##--Match Kirby's masks---
-    if userInputList.matchKirby:
-        listOfKirbyExcel = list(excelFileFolder.glob("*.xlsx"))
-        dictKirby = defaultdict()
-        chToClass = userInputList.segmentationChannel
-
-        for file in listOfKirbyExcel:
-            dateName = file.name.rsplit("_Segmentation")[0].lower()
-            dataFrame = pd.read_excel(file)
-            dictKirby[dateName] = dataFrame
-
-        listOfAllChPosImages = list(chCellCropLocation.rglob(f"*_ch{chToClass}.tif"))
-        
-        for imgName in listOfAllChPosImages:
-            nameMatchStr = imgName.name.replace(f"_ch{chToClass}.tif", ".tif")
-            # print(f"working on {imgName.name}")
-            tmpDateName = imgName.name.rsplit("_image_")[0].lower()
-            tmpDF = dictKirby[tmpDateName]
-            iouScore = tmpDF.loc[tmpDF["cellName"].str.lower() == nameMatchStr.lower(), "overlapMeasurement"].values[0]
-            keepImg = iouScore > 0.6
-            if not keepImg:
-                listOfImgsToRemove = list(chCellCropLocation.glob(f"{imgName.stem.replace(f'_ch{chToClass}', '')}*"))
-                for fileToRemove in listOfImgsToRemove:
-                    shutil.move(fileToRemove, badFolderLocation.joinpath(fileToRemove.name))
-                if "CGN" in imgName.name:
-                    movedCountCGN += 1
-                if "GNP" in imgName.name:
-                    movedCountGNP += 1
-            else:
-                if "CGN" in imgName.name:
-                    keptCountCGN += 1
-                if "GNP" in imgName.name:
-                    keptCountGNP += 1
-        cellCountDF = countCells(chCellCropLocation, cellCountDF, "match Kirby")
-            
-    
-    parameterTextStr = f"""Parameters:
-                were crops below a certain volume threshold removed? {userInputList.filterSmallSize}
-                were crops with a low Hoechst signal removed? {userInputList.filterLowHoechst}
-                were crops that didn't match Kirby's segmentations removed? {userInputList.matchKirby}
-          
-            CGN cells removed: {lowSizeRemovedCGN} removed due to small size. 
-            GNP cells removed: {lowSizeRemovedGNP} removed due to small size.
-            CGN cells removed: {lowSignalRemovedCGN} removed due to low Hoechst signal.
-            GNP cells removed: {lowSignalRemovedGNP} removed due to low Hoechst signal.                    
-            Total cells removed for not matching Kirby's masks: CGN: {movedCountCGN}, GNP: {movedCountGNP}")
-            Total cells kept: {keptCountGNP} GNP cells and {keptCountCGN} CGN cells.")"""
-    
-    # print(parameterTextStr)
-    
-    with open(parameterFileLoc, 'w') as file:
-         file.write(parameterTextStr)
-
-    cellCountDF.to_excel(saveFolder / "removed_cell_numbers.xlsx")
-
-
-
-
-
-
-
-
-
-# def removeBadSmallBlankCrops(saveFolder, userInputList):
-#     import shutil
-#     from skimage.io import imread
-#     import numpy as np
-
-#     chCellCropLocation = saveFolder / "allch_positiveCells"
-
-#     ##find txt file that has list of bad crops
-#     badFolderLocation = saveFolder.joinpath("badCrops")
-#     badFolderLocation.mkdir(exist_ok = True)     
-
-#     lowSignalRemovedCGN = 0   
-#     lowSignalRemovedGNP = 0 
-
-#     lowSizeRemovedCGN = 0
-#     lowSizeRemovedGNP = 0 
-    
-#     print("checking for good Hoechst signal in cell crops")
-#     imgList = list(chCellCropLocation.rglob("*ch0.tif"))
-#     for img in imgList:
-#         tmpCh0Img = imread(img)
-#         tmpch0ImgName = img.stem
-#         tmpCellposeMaskName = chCellCropLocation.joinpath(tmpch0ImgName.replace("_ch0","_CellposeMask.tif"))
-#         tmpMask = imread(tmpCellposeMaskName)
-#         bgPixelsOnly = tmpCh0Img[tmpMask == 0]
-#         avgBgValue = np.mean(bgPixelsOnly)
-#         signalPixels = tmpCh0Img[tmpMask > 0]
-#         avgSignal = np.mean(signalPixels)
-#         cropSize = np.sum(tmpMask)
-#         if userInputList.filterLowHoechst:
-#             if avgSignal < (avgBgValue + avgBgValue*.25):
-#                 print(f"Hoecht signal for {tmpch0ImgName} was too low, signal {avgSignal} to bg {avgBgValue}")
-#                 if "CGN" in img.stem:
-#                     lowSignalRemovedCGN += 1
-#                 if "GNP" in img.stem:
-#                     lowSignalRemovedGNP += 1
-#                 strToMove = img.stem.rsplit("_",1)[0]
-#                 listToMove = list(chCellCropLocation.rglob(f"*{strToMove}*.tif"))
-#                 for file in listToMove:            
-#                     shutil.move(file, badFolderLocation.joinpath(file.name))
-#         if userInputList.filterSmallSize:
-#             if cropSize < 12000:
-#                 print(f"Size for {tmpch0ImgName} was too low, size was {cropSize}")
-#                 if "CGN" in img.stem:
-#                     lowSizeRemovedCGN += 1
-#                 if "GNP" in img.stem:
-#                     lowSizeRemovedGNP += 1
-#                 strToMove = img.stem.rsplit("_",1)[0]
-#                 listToMove = list(chCellCropLocation.rglob(f"*{strToMove}*.tif"))
-#                 for file in listToMove:            
-#                     shutil.move(file, badFolderLocation.joinpath(file.name))
-    
-#     print(f"CGN cells removed: {lowSizeRemovedCGN} removed due to small size.")
-#     print(f"GNP cells removed: {lowSizeRemovedGNP} removed due to small size.")
-#     print(f"CGN cells removed: {lowSignalRemovedCGN} removed due to low Hoechst signal.")
-#     print(f"GNP cells removed: {lowSignalRemovedGNP} removed due to low Hoechst signal.")
-
-
-# def removeMismatchKirby(saveFolder, userInputList):
-#     import pandas as pd
-#     import shutil
-#     from collections import defaultdict
-
-#     chCellCropLocation = saveFolder / "allch_positiveCells"
-
-#     badFolderLocation = saveFolder.joinpath("badCrops")
-#     excelFileFolder = saveFolder / "overlapKirbyFiles"
-#     listOfKirbyExcel = list(excelFileFolder.glob("*.xlsx"))
-#     dictKirby = defaultdict()
-#     chToClass = userInputList.segmentationChannel
-
-#     for file in listOfKirbyExcel:
-#         dateName = file.name.rsplit("_Segmentation")[0].lower()
-#         dataFrame = pd.read_excel(file)
-#         dictKirby[dateName] = dataFrame
-
-#     listOfAllChPosImages = list(chCellCropLocation.rglob(f"*_ch{chToClass}.tif"))
-#     movedCountCGN = 0
-#     movedCountGNP = 0
-#     keptCountGNP = 0
-#     keptCountCGN = 0
-#     for imgName in listOfAllChPosImages:
-#         nameMatchStr = imgName.name.replace(f"_ch{chToClass}.tif", ".tif")
-#         tmpDateName = imgName.name.rsplit("_image_")[0].lower()
-#         tmpDF = dictKirby[tmpDateName]
-#         iouScore = tmpDF.loc[tmpDF["cellName"].str.lower() == nameMatchStr.lower(), "overlapMeasurement"].values[0]
-#         keepImg = iouScore > 0.6
-#         if not keepImg:
-#             listOfImgsToRemove = list(chCellCropLocation.glob(f"{imgName.stem.replace(f'_ch{chToClass}', '')}*"))
-#             for fileToRemove in listOfImgsToRemove:
-#                 shutil.move(fileToRemove, badFolderLocation.joinpath(fileToRemove.name))
-#             if "CGN" in imgName.name:
-#                 movedCountCGN += 1
-#             if "GNP" in imgName.name:
-#                 movedCountGNP += 1
-#         else:
-#             if "CGN" in imgName.name:
-#                 keptCountCGN += 1
-#             if "GNP" in imgName.name:
-#                 keptCountGNP += 1
-            
-#     print(f"Total cells removed for not matching Kirby's masks: CGN: {movedCountCGN}, GNP: {movedCountGNP}")
-#     print(f"Total cells kept: {keptCountGNP} GNP cells and {keptCountCGN} CGN cells.")
 

@@ -21,26 +21,26 @@ import re
 @dataclass
 class UserInputs():
     ##---General Parameters---##
-    chToClassify: int = field(default = 1, metadata={"help": "The channel to classify."})
-    siftNormalization: str = field(default="asinh", metadata={"help": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
-    hogNormalization: str = field(default="asinh", metadata={"help": "How do you want to normalize the HOG descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
+    chToClassify: int = field(default = 0, metadata={"help": "The channel to classify."})
+    siftNormalization: str = field(default="5-95", metadata={"help": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
+    hogNormalization: str = field(default="5-95", metadata={"help": "How do you want to normalize the HOG descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
     removeSmallBadCrops: bool = field(default = False, metadata={"help": "Do you want to remove small crops that are smaller than a certain threshold?"})
     splitSmallAndLarge: bool = field(default=False, metadata={"help": "Do you want to split the images into small and large categories for processing?"})
-    rgbMask: bool = field(default=False, metadata={"help": "Do you want to use an RGB mask for image processing?"})
-    segmentationAvailable: bool = field(default=False, metadata={"help": "Do you already have segmentation masks available for your images?"})
-    segmentationChannel: int = field(default=0, metadata={"help": "If you have segmentation masks available, which channel are they in?"})
-    nJobs: int = field(default=10, metadata={"help": "How many parallel jobs do you want to run when processing HOG features? Kirby's data = 10, Chris' data = 7"})
+    # rgbMask: bool = field(default=False, metadata={"help": "Do you want to use an RGB mask for image processing?"})
+    # segmentationAvailable: bool = field(default=False, metadata={"help": "Do you already have segmentation masks available for your images?"})
+    # segmentationChannel: int = field(default=0, metadata={"help": "If you have segmentation masks available, which channel are they in?"})
+    nJobs: int = field(default=7, metadata={"help": "How many parallel jobs do you want to run when processing HOG features? Kirby's data = 10, Chris' data = 7"})
                 
     transferFiles: bool = field(default=True, metadata={"help": "Do you want to transfer the processed files to a different location?"})
-    zDriveSaveFolder: str = field(default="/research/groups/solecgrp/home/apittman1/Data_Analysis/UnsupervisedClassification/3D_HOG/NipblLOF/conCGN_lofCGN_HPC_results/conCGN_dateTesting_equalFileNumber/", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
+    zDriveSaveFolder: str = field(default="/research/groups/solecgrp/home/apittman1/Data_Analysis/UnsupervisedClassification/3D_HOG/NipblLOF/Par3OE_DCC_HPC/", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
     
-    useSegmentationMasks: bool = field(default=True, metadata={"help": "Do you want to use segmentation masks for image processing?"})
-    singleChannel: bool = field(default=False, metadata={"help": "Do you want to process only a single channel?"})
+    useSegmentationMasks: bool = field(default=False, metadata={"help": "Do you want to use segmentation masks for image processing?"})
+    singleChannel: bool = field(default=True, metadata={"help": "Do you want to process only a single channel?"})
     calcAttnToMask: bool = field(default = False,  metadata={"help": "Do you want to calculate the overlap of attention to masks?"})
 
     #--- SIFT parameters --- ##
     siftKeypointsLocation: str = field(default="all", metadata={"help": "Where are the keypoints localized to? Areas of high signal or low signal?"})
-    siftThreshold: float = field(default=0.03, metadata={"help": "Default 0.03, decrease to find more keypoints, 0.09 worked well for subset of Chris' 3D data"})
+    siftThreshold: float = field(default=0.09, metadata={"help": "Default 0.03, decrease to find more keypoints, 0.09 worked well for subset of Chris' 3D data"})
     siftEdgeR: int = field(default=6, metadata={"help": "Default 6, increase to find more 'edge like' keypoints"})
     ablateMethod: str = field(default="level", metadata={"help": "Word, family, or level"})
 
@@ -74,7 +74,7 @@ class UserInputs():
     cGrid: tuple[float, ...] = field(default=(0.1, 0.3, 1.0, 3.0, 10.0), metadata={"help": "The grid of C values for hyperparameter tuning."})
     l1Grid: tuple[float, ...] = field(default=(0.1, 0.3, 0.5, 0.7), metadata={"help": "The grid of l1 values for hyperparameter tuning."})
     numberOfNeighbors: int = field(default=4, metadata={"help": "The number of neighbors to consider for k-NN based methods."})
-    classNames: list[str] = field(default_factory=lambda: ["250114", "240710", "240621"],
+    classNames: list[str] = field(default_factory=lambda: ["Par3OE_prenetrin", "Control_prenetrin"],
         metadata={"help": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -."}
     )
     
@@ -365,19 +365,19 @@ def compileChCellCrops(filePath,userInputList, saveFolder):
     else:
         allChList = list(allChFolder.rglob("*hyperstack*.tif"))
 
-    if userInputList.rgbMask:
-        convertRGBMasktoBinary(allChFolder, userInputList)
+    # if userInputList.rgbMask:
+    #     convertRGBMasktoBinary(allChFolder, userInputList)
 
     maskList = list(allChFolder.rglob("*ask*.tif"))
-    segmentationList = list(allChFolder.rglob("*Seg*.tif")) if userInputList.segmentationAvailable else []
+    # segmentationList = list(allChFolder.rglob("*Seg*.tif")) if userInputList.segmentationAvailable else []
     badStringList = ["eroded", "cleaned", "edt", "rgb"]
     refinedMaskList = [mask for mask in maskList if not any(bad_str in mask.name.lower() for bad_str in badStringList)]
 
     for file in refinedMaskList:
         shutil.copy2(file, ch2CropFolder.joinpath(file.name))     
 
-    for file in segmentationList:
-        shutil.copy2(file, ch2CropFolder.joinpath(file.name)) 
+    # for file in segmentationList:
+    #     shutil.copy2(file, ch2CropFolder.joinpath(file.name)) 
 
     strChannel = str(userInputList.chToClassify)
     for crop in allChList:
@@ -406,35 +406,35 @@ def compileChCellCrops(filePath,userInputList, saveFolder):
 
 
 
-def convertRGBMasktoBinary(allChFolder, userInputList):
-    import numpy as np
-    import tifffile as tiff
-    import step2AnalysisHelperFcts as analysisFct
+# def convertRGBMasktoBinary(allChFolder, userInputList):
+#     import numpy as np
+#     import tifffile as tiff
+#     import step2AnalysisHelperFcts as analysisFct
 
-    rgbMaskList = allChFolder.glob("*rgbmask.tif")
-    wiggleRoom = 0.1
-    nZ = 18  # repeat count for z-dimension
+#     rgbMaskList = allChFolder.glob("*rgbmask.tif")
+#     wiggleRoom = 0.1
+#     nZ = 18  # repeat count for z-dimension
 
-    for rgbMaskPath in rgbMaskList:
-        tmpMask = tiff.imread(rgbMaskPath)
-        rgbMask = analysisFct.ensure_channels_last(tmpMask)      
-        R_mask = rgbMask[..., 0]
-        G_mask = rgbMask[..., 1]
-        B_mask = rgbMask[..., 2]
+#     for rgbMaskPath in rgbMaskList:
+#         tmpMask = tiff.imread(rgbMaskPath)
+#         rgbMask = analysisFct.ensure_channels_last(tmpMask)      
+#         R_mask = rgbMask[..., 0]
+#         G_mask = rgbMask[..., 1]
+#         B_mask = rgbMask[..., 2]
 
-        total_cell_mask = (G_mask > wiggleRoom) | (B_mask > wiggleRoom)
-        red_only_bg = (R_mask > wiggleRoom) & (G_mask <= wiggleRoom) & (B_mask <= wiggleRoom)
-        total_cell_mask = total_cell_mask & (~red_only_bg)
+#         total_cell_mask = (G_mask > wiggleRoom) | (B_mask > wiggleRoom)
+#         red_only_bg = (R_mask > wiggleRoom) & (G_mask <= wiggleRoom) & (B_mask <= wiggleRoom)
+#         total_cell_mask = total_cell_mask & (~red_only_bg)
 
-        # 2D -> 3D (18, y, x)
-        mask2d = total_cell_mask.astype(np.uint8)          # values 0/1
-        mask3d = np.repeat(mask2d[None, ...], nZ, axis=0)  # (18, y, x)
-        # print(f"mask shape was {mask3d.shape}")
+#         # 2D -> 3D (18, y, x)
+#         mask2d = total_cell_mask.astype(np.uint8)          # values 0/1
+#         mask3d = np.repeat(mask2d[None, ...], nZ, axis=0)  # (18, y, x)
+#         # print(f"mask shape was {mask3d.shape}")
 
-        # Save
-        outPath = rgbMaskPath.with_name(rgbMaskPath.name.replace("rgbmask", "mask"))
-        tiff.imwrite(outPath, mask3d, photometric="minisblack", imagej=True,
-            metadata={"axes": "ZCYX"},)
+#         # Save
+#         outPath = rgbMaskPath.with_name(rgbMaskPath.name.replace("rgbmask", "mask"))
+#         tiff.imwrite(outPath, mask3d, photometric="minisblack", imagej=True,
+#             metadata={"axes": "ZCYX"},)
 
 
 
@@ -715,10 +715,9 @@ def runSingleScaleClassificationSparse(userInputList,chCellCropLocation,saveFold
         runLRSweep(userInputList, allImagesCellFeatureDict, saveFolder)                                                             
     
     anaFct.linearRegressMultiClasses(allImagesCellFeatureDict, saveFolder, userInputList, tfidfObject)
-    # anaFct.runHaralickMultiClasses(allImagesCellFeatureDict, saveFolder, userInputList)
+    anaFct.runHaralickMultiClasses(allImagesCellFeatureDict, saveFolder, userInputList)
     
-    if userInputList.calcAttnToMask:
-        anaFct.calcAttnMaskOverlap(allImagesCellFeatureDict, saveFolder, userInputList)
+    anaFct.analyzeAttention(saveFolder, userInputList, allImagesCellFeatureDict, codebook)
     
     classFct.dictionarySavepoint(allImagesCellFeatureDict, saveFolder) 
 

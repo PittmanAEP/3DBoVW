@@ -21,14 +21,16 @@ def runCellposeSegmentation(filePath, userInputList, saveFolder):
     with alive_bar(len(fileNames)) as bar:
         for file in fileNames:
             tmpHyperstack = tiff.imread(file)
-            channelIndex = [i for i, dim in enumerate(tmpHyperstack.shape) if dim <= 5]
-            tmpHyperstack = np.moveaxis(tmpHyperstack, channelIndex, 0)
-            
+            if tmpHyperstack.ndim == 4:
+                channelIndex = [i for i, dim in enumerate(tmpHyperstack.shape) if dim <= 5]
+                tmpHyperstack = np.moveaxis(tmpHyperstack, channelIndex, 0)
+            if tmpHyperstack.ndim == 3:
+                tmpHyperstack = tmpHyperstack[np.newaxis, ...]
+                userInputList.segmentationChannel = 0
+
             tmpFile = tmpHyperstack[userInputList.segmentationChannel,userInputList.cropStart:userInputList.cropEnd,:,:]
             tmpHyperstack = tmpHyperstack[:,userInputList.cropStart:userInputList.cropEnd,:,:]
             name = file.stem
-            if userInputList.verboseMessages:
-                print(f"working on...{name}")
             adjustFolderName = saveFolder.joinpath("adjustedChannels")
             adjustFolderName.mkdir(exist_ok = True)
             tiff.imwrite(adjustFolderName.joinpath(f"{name}_ch{userInputList.segmentationChannel}crop.tif"), tmpFile)
@@ -38,7 +40,15 @@ def runCellposeSegmentation(filePath, userInputList, saveFolder):
             tmpHyperName = imageSaveFolder.joinpath(file.name)
             tiff.imwrite(tmpHyperName, tmpHyperstack)
 
-            print("Now running cellpose SAM...")            
+            if userInputList.verboseMessages:
+                print(f"working on...{name}")
+                print("Now running cellpose SAM...")   
+                print(f"flow_threshold: {userInputList.flow_threshold}")
+                print(f"cellprob_threshold: {userInputList.cellprob_threshold}")
+                print(f"tile_norm_blocksize: {userInputList.tile_norm_blocksize}")
+                print(f"minSize: {userInputList.minSize}")
+                print(f"zAxis: {userInputList.zAxis}")
+
             flow_threshold = userInputList.flow_threshold
             cellprob_threshold = userInputList.cellprob_threshold
             tile_norm_blocksize = userInputList.tile_norm_blocksize
@@ -53,7 +63,6 @@ def runCellposeSegmentation(filePath, userInputList, saveFolder):
             if userInputList.verboseMessages:
                 io.logger_setup()
  
-            
             cropFolderName = imageSaveFolder.joinpath("crops")
             cropFolderName.mkdir(exist_ok = True)
             maskFolderName = imageSaveFolder.joinpath("maskCropsCellpose")
@@ -82,7 +91,6 @@ def runCellposeSegmentation(filePath, userInputList, saveFolder):
             imsave(adjustFolderName.joinpath(f"{name}_boundingBox.tif"), boundingBoxImage)
             bar()
     
-    # return fileNames, avgVolume
 
 
 def cropOutCellsFromMask(maskImg, cellImg, buffer, imageName):
@@ -94,9 +102,11 @@ def cropOutCellsFromMask(maskImg, cellImg, buffer, imageName):
     maskDictionary = {}
     maxValue = np.max(maskImg)
 
-    if cellImg.shape[-1] < 5:
+    if cellImg.ndim == 4 and cellImg.shape[-1] < 5:
         cellImg = np.transpose(cellImg, (3,0,1,2))
-    
+    if cellImg.ndim == 3:
+        cellImg = cellImg[np.newaxis, ...]
+
     for cropNumber in range(1, maxValue+1):
         cellName = imageName + "_cell_crop_" + str(cropNumber)
         cellCropMask = (maskImg == cropNumber).astype(np.uint8)

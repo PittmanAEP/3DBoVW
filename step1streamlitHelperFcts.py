@@ -1,12 +1,12 @@
 
 
-def prepareImgsForSegmentationMaxProj(saveFolder):
+def prepareImgsForSegmentationMaxProj(saveFolder, userInputList):
     import numpy as np
     from skimage.io import imread, imsave
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, message=".*low contrast image*")
-
-    print("generating max projections for visualization")
+    if userInputList.verboseMessages:
+        print("generating max projections for visualization")
     folderPaths = list(saveFolder.glob("img*"))
     maxProjectionFolder = saveFolder.joinpath("maxProjections")
     maxProjectionFolder.mkdir(exist_ok = True)
@@ -26,12 +26,12 @@ def prepareImgsForSegmentationMaxProj(saveFolder):
         imsave(saveMaskName, tmpMaskMax)
 
 
-def moveTifsToFolder(saveFolder, streamlitFolder):
+def moveTifsToFolder(saveFolder, streamlitFolder, userInputList):
     from skimage.io import imread, imsave
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, message=".*low contrast image*")
-
-    print("copying full image files to streamlit folder")
+    if userInputList.verboseMessages:
+        print("copying full image files to streamlit folder")
     fileLoc = saveFolder / "maxProjections"
     fileList = fileLoc.rglob("*.tif")
     refinedList = [filePath for filePath in fileList if "Cellpose" not in filePath.name]
@@ -46,10 +46,13 @@ def moveTifsToFolder(saveFolder, streamlitFolder):
         imsave(streamlitFolder / f"{imgName}_CellposeMasks.tif", tmpMask)
 
 
-def writeStreamlitAppSegmentation(streamlitAppFolder,finalMetaDataPath, parameterFileName):
+def writeStreamlitAppSegmentation(streamlitAppFolder,finalMetaDataPath, parameterFileName, userInputList):
+    import json
     import subprocess
-    
-    print("Writing Streamlit Script Now...")
+
+    class_names_json = json.dumps(userInputList.classNames)
+    if userInputList.verboseMessages:
+        print("Writing Streamlit Script Now...")
     script = f"""
 import altair as alt
 import streamlit as st
@@ -74,13 +77,15 @@ wholeImgBasePath = maxProjectionLoc.parent
 listOfWholeImgs = [p.name for p in wholeImgBasePath.glob("img_*") if p.is_dir()]
 
 # ---- Define Functions ----
-conditionList = ["Control", "nipblLOF"]
+# Class/condition labels from Step 1 user_inputs (classNames); substring match on baseName
+conditionList = {class_names_json}
 
 def detect_condition(name):
     name_lower = name.lower()
-    for condition in conditionList:
+    for condition in sorted(conditionList, key=len, reverse=True):
         if condition.lower() in name_lower:
             return condition
+    return "Unassigned"
 
 
 
@@ -99,7 +104,7 @@ def create_overlayed_pil(image, imgName, mask=None, show_mask=True, alpha_val=12
 
     if show_mask and mask is not None:
         rgba_mask = np.zeros((*mask.shape, 4), dtype=np.uint8)
-        base_name = imgName.rsplit(".tif", 1)[0]
+        base_name = imgName.rsplit("img_", 1)[1]
         for cell_id in np.unique(mask):
             if cell_id == 0:
                 continue  # skip background
@@ -214,14 +219,59 @@ color_map = {{
     condition: palette[i % len(palette)]
     for i, condition in enumerate(conditionList)
 }}
+color_map["Unassigned"] = "#9E9E9E"
 
 # --- Handle plot click ---
 clicked_data = st.session_state.get("clicked")
 bad_list = st.session_state.get("bad_list")
 
-sizePlots,  imageTab = st.tabs(["Segmentation Results", "Images"])
+howToTab, sizePlots, imageTab = st.tabs(["How to use", "Segmentation Results", "Images"])
 
-#-- Tab 1, plots
+with howToTab:
+    st.markdown(
+        r'''
+### Overview
+
+This app helps you **review 3D segmentation results**, compare **nuclear volumes** across conditions, set **volume-based filters**, and **flag individual cell crops** to exclude from further work. Data are loaded from your run's metadata spreadsheet and image folders next to it.
+
+---
+
+### Segmentation Results tab
+
+- **Violin and histogram charts** plot nuclear volume (`Volume_pixels`) by **condition**. Conditions are inferred from each cell's `baseName` by substring match against `conditionList` (copied from `classNames` in your Step 1 `user_inputs.json` when this app was generated). Names that match no class are labeled **Unassigned**.
+- **KDE plot** shows the distribution of volumes per condition, with **dashed vertical lines** for the thresholds you set in the sidebar of that section.
+- Use **Set volume threshold per group** to enter a volume cutoff for each condition. The table below the chart shows how many cells fall **below** vs **above** each threshold.
+- **Select volume type to keep for each group** uses one radio choice per condition: keep **small** volumes, **large** volumes, **none**, or **all**. These choices are stored in the summary table (boolean columns).
+- Click **Save summary as CSV to disk** to write `volume_threshold_summary.csv` in the **same parent folder as your metadata Excel file** (next to `allch_positiveCells`, etc.). Use that file in downstream steps; nothing is written until you press save.
+
+---
+
+### Images tab
+
+- Pick a **whole-image folder** (`img_*`) from the dropdown or use **Next Image** / the **Image Selection** buttons at the bottom.
+- Toggle **Show cellpose mask** to overlay segment labels on the max projection or a single Z-slice (**Choose View Mode**).
+- **Overlay colors:** **blue** masks are crops that appear in the analysis (matching hyperstack files under `allch_positiveCells`). **red** masks are excluded (e.g. you removed them) or have no matching crop file.
+- **Click the overlaid image** to select a cell ID. The **right column** shows that crop's Z-stack viewer (optional Cellpose overlay on the crop).
+- **Remove crop from dataset** adds that crop to the **excluded list** (session memory), colors it red on the whole-image view, and removes it from tables driven by `dataDF` for this session. It does **not** delete files on disk.
+
+---
+
+### Sidebar (all tabs)
+
+- The sidebar shows a **single crop** corresponding to the app's **default spreadsheet selection** (`selected_image` / channel / Z / optional Cellpose overlay) and reports **average intensity inside the mask** for the chosen channel.
+- **User excluded crops** lists every crop you marked with **Remove crop from dataset**, sorted by name.
+- **Save excluded list to txt** writes `excluded_crops.txt` in the **metadata parent folder** (one hyperstack stem per line). Use that list to exclude the same crops in later pipelines. Until you save, excluded crops exist only in this browser session.
+
+---
+
+### Tips
+
+- Refreshing or closing the page clears **session-only** state (excluded crops, threshold UI state). Save the CSV and the excluded-crops text file when you are done.
+- If the sidebar warns that an image is missing, check that paths and filenames match what Step 1 produced (`allch_positiveCells`, hyperstack naming).
+'''
+    )
+
+#-- Tab 2, plots
 with sizePlots:
     figVolViolin = px.violin(
             st.session_state.filteredDF,
@@ -417,6 +467,18 @@ with imageTab:
 
         overlayed_img = create_overlayed_pil(img,selected_image, mask=mask, show_mask=show_features)
         coords = streamlit_image_coordinates(overlayed_img, key="pil", width=display_width)
+        if show_features:
+            st.markdown(
+                "<div style='font-size:0.85rem;margin-top:0.35rem;'>"
+                "<span style='display:inline-block;width:11px;height:11px;background:#0000FF;"
+                "vertical-align:middle;margin-right:5px;border-radius:2px;'></span>"
+                "Included in analysis&nbsp;&nbsp;&nbsp;"
+                "<span style='display:inline-block;width:11px;height:11px;background:#FF0000;"
+                "vertical-align:middle;margin-right:5px;border-radius:2px;'></span>"
+                "Not included"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
         with colIndi:
             if coords is not None:
@@ -448,6 +510,8 @@ with imageTab:
 # ---- Sidebar image viewer ----
 with st.sidebar:
     st.header("Images and parameter info")
+    
+
     selected_image_path = imageBasePath.joinpath(st.session_state.selected_image) 
     if selected_image_path.exists():        
         hyperImageVolume = tiff.imread(selected_image_path)
@@ -483,6 +547,25 @@ with st.sidebar:
     ax.axis("off")
     st.pyplot(fig)
     st.text(f"Avg Intensity (inside mask) for this channel was {{round(avgFilteredIntValue)}}")
+
+    st.divider()
+
+    st.subheader("User excluded crops")
+    bad_sorted = sorted(st.session_state.bad_list)
+    if bad_sorted:
+        st.caption(f"{{len(bad_sorted)}} crop(s) marked for exclusion.")
+        for name in bad_sorted:
+            st.text(name)
+    else:
+        st.caption("None yet. Remove crops from the Images tab to add them here.")
+
+    if st.button("Save excluded list to txt", key="save_bad_crops_sidebar"):
+        out_path = dataLoc.parent / "excluded_crops.txt"
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("\\n".join(sorted(st.session_state.bad_list)))
+        st.success(f"Saved {{len(st.session_state.bad_list)}} name(s) to {{out_path}}")
+
+    
 
     
     """
