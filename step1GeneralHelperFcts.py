@@ -34,14 +34,12 @@ import re
 @dataclass
 class UserInputs:
     ##--- General Parameters --##    
-    # singleChannel: bool = field(default=False, metadata={"help": "If True, expect single-channel input and skip checks for multiple channels."})
-    segmentationChannel: int = field(default=1, metadata={"help": "Channel index used for segmentation input."})
+    segmentationChannel: int = field(default=0, metadata={"help": "Channel index used for segmentation input."})
     requiredChannels: list[int] = field(default_factory=lambda: [1, 2], metadata={"help": "Channel indices that must pass the intensity-vs-background test for a crop to be kept. segmentationChannel is never tested. Indices >= channel count in an image are skipped for that image."})
     signalThreshold: float = field(default=0.25, metadata={"help": "Threshold applied to signal when generating segmentation classes."})
     verboseMessages: bool = field(default=True, metadata={"help": "If True, print verbose debugging messages."})    
     classNames: list[str] = field(default_factory=lambda: ["Control", "LOF"],
-        metadata={"help": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -."}
-    )
+        metadata={"help": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -."})
 
     ##--- Cellpose Parameters ----##
     flow_threshold:float = field(default = 0.4, metadata={"help": "Cellpose flow threshold parameter. Lower this is you see merged cell masks."})

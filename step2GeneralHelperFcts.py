@@ -22,8 +22,8 @@ import re
 class UserInputs():
     ##---General Parameters---##
     chToClassify: int = field(default = 0, metadata={"help": "The channel to classify."})
-    siftNormalization: str = field(default="5-95", metadata={"help": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
-    hogNormalization: str = field(default="5-95", metadata={"help": "How do you want to normalize the HOG descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
+    siftNormalization: str = field(default="none", metadata={"help": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
+    hogNormalization: str = field(default="none", metadata={"help": "How do you want to normalize the HOG descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
     removeSmallBadCrops: bool = field(default = False, metadata={"help": "Do you want to remove small crops that are smaller than a certain threshold?"})
     splitSmallAndLarge: bool = field(default=False, metadata={"help": "Do you want to split the images into small and large categories for processing?"})
     # rgbMask: bool = field(default=False, metadata={"help": "Do you want to use an RGB mask for image processing?"})
