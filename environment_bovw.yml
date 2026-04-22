@@ -1,0 +1,48 @@
+name: 3d-bovw
+channels:
+  - pytorch
+  - conda-forge
+  - nvidia
+  - defaults
+
+dependencies:
+  - python=3.11.9
+  - pip=23.3
+
+  # Core numerical / ML stack used directly in the code
+  - numpy=1.26.4
+  - pandas=2.2.3
+  - scipy=1.14.1
+  - scikit-image=0.24.0
+  - scikit-learn=1.5.2
+  - matplotlib=3.10.0
+  - tifffile=2024.9.20
+  - simpleitk=2.4.1
+  - joblib=1.4.2
+  - tqdm=4.67.1
+  - pyyaml=6.0.2
+
+  # Excel / image / app support used by the pipeline and generated Streamlit apps
+  - pillow=11.0.0
+  - openpyxl=3.1.5
+  - xlsxwriter=3.2.3
+  - streamlit=1.48.0
+  - altair=5.5.0
+  - plotly=6.3.1
+
+  # Dimension reduction
+  - umap-learn=0.5.7
+
+  # PyTorch GPU stack
+  - pytorch=2.5.1
+  - torchvision=0.20.1
+  - torchaudio=2.5.1
+  - pytorch-cuda=12.4
+
+  - pip:
+      - cellpose==4.0.1
+      - alive-progress==3.2.0
+      - streamlit-image-coordinates==0.2.1
+      - wandb==0.22.2
+      - mahotas==1.4.18
+      - kaleido==1.1.0
