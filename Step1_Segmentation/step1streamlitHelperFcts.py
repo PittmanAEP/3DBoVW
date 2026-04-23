@@ -15,6 +15,7 @@ def prepareImgsForSegmentationMaxProj(saveFolder, userInputList):
         mask = f"{imgNameOnly}_CellposeMasks.tif"
 
         tmpImg = imread(folder / f"{imgNameOnly}.tif")
+        numberOfChannels = next(d for d in tmpImg.shape if d <= 5)
         tmpMask = imread(folder / mask)
 
         tmpImgMax = np.max(tmpImg, axis=0)
@@ -24,7 +25,7 @@ def prepareImgsForSegmentationMaxProj(saveFolder, userInputList):
 
         imsave(saveImgName, tmpImgMax)
         imsave(saveMaskName, tmpMaskMax)
-
+    return numberOfChannels
 
 def moveTifsToFolder(saveFolder, streamlitFolder, userInputList):
     from skimage.io import imread, imsave
@@ -46,7 +47,7 @@ def moveTifsToFolder(saveFolder, streamlitFolder, userInputList):
         imsave(streamlitFolder / f"{imgName}_CellposeMasks.tif", tmpMask)
 
 
-def writeStreamlitAppSegmentation(streamlitAppFolder,finalMetaDataPath, parameterFileName, userInputList):
+def writeStreamlitAppSegmentation(streamlitAppFolder,finalMetaDataPath, parameterFileName, userInputList, numberOfChannels):
     import json
     import subprocess
 
@@ -73,7 +74,8 @@ jsonFile = Path("{parameterFileName}")
 imageBasePath = dataLoc.parent / "allch_positiveCells"
 maxProjectionLoc = dataLoc.parent / "maxProjections"
 wholeImgBasePath = maxProjectionLoc.parent
-
+numberOfChannels = {numberOfChannels}
+available_channels = list(range(numberOfChannels))
 listOfWholeImgs = [p.name for p in wholeImgBasePath.glob("img_*") if p.is_dir()]
 
 # ---- Define Functions ----
@@ -87,7 +89,18 @@ def detect_condition(name):
             return condition
     return "Unassigned"
 
+def volume_for_display(imagePath, channel):
+    #take in image path and return single channel image for display
+    #rearranges dimensions if the channel is not the first dimension
+    import tifffile as tiff
+    tmpImg = tiff.imread(imagePath)
 
+    if tmpImg.ndim == 4:
+        if tmpImg.shape[0] > 5:
+            tmpImg = np.transpose(tmpImg, (1,2,3,0))
+        tmpImg = tmpImg[channel,:,:,:]
+    
+    return tmpImg
 
 def normalize_contrast(image, min_val, max_val):
     clipped = np.clip(image, min_val, max_val)
@@ -418,6 +431,7 @@ with sizePlots:
 
 
 
+
 with imageTab:
     colMax, colIndi = st.columns([1,1])
     with colMax: 
@@ -437,13 +451,15 @@ with imageTab:
             st.session_state.img_index = current_index
 
         imagePath = maxProjectionLoc.parent / selected_image / f"{{selected_image.replace('img_', '')}}.tif"
-        maskPath = maxProjectionLoc.parent / selected_image / f"{{selected_image.replace('img_', '')}}_CellposeMasks.tif"
-        tmpImg = tiff.imread(imagePath)[1,:,:,:]
+        maskPath = maxProjectionLoc.parent / selected_image / f"{{selected_image.replace('img_', '')}}_CellposeMasks.tif"        
         # print(f"image {{imagePath}} was read in with shape {{tmpImg.shape}}")
         tmpMask = tiff.imread(maskPath)
         
 
-        colCheck, colRadio = st.columns([1,1])
+        colCheck, colRadio, colChannel = st.columns([1,1,1])
+        with colChannel:
+            selected_channel = st.selectbox("Choose image channel", available_channels, key="channel_select")
+            tmpImg = volume_for_display(imagePath, selected_channel)
         with colCheck:            
             show_features = st.checkbox("Show cellpose mask", value=True, key="wholeImgCheckbox")
         with colRadio:
@@ -483,7 +499,7 @@ with imageTab:
         with colIndi:
             if coords is not None:
                 cell_id = get_clicked_cell_id(coords, mask, display_width)
-                display_cell_crop_viewer(selected_image.replace('img_', ''), cell_id, imageBasePath)
+                display_cell_crop_viewer(selected_image.replace('img_', ''), cell_id, imageBasePath, selected_channel)
             
                 crop_key = f"{{selected_image.replace('img_', '')}}_cell_crop_{{cell_id}}"
 
@@ -509,46 +525,7 @@ with imageTab:
 
 # ---- Sidebar image viewer ----
 with st.sidebar:
-    st.header("Images and parameter info")
-    
-
-    selected_image_path = imageBasePath.joinpath(st.session_state.selected_image) 
-    if selected_image_path.exists():        
-        hyperImageVolume = tiff.imread(selected_image_path)
-        if hyperImageVolume.shape[0] < 5:
-            hyperImageVolume = np.transpose(hyperImageVolume, (1,2,3,0))  
-    else:
-        st.warning(f"Image not found: {{st.session_state.selected_image}}")
-    selected_cellposemask_path = imageBasePath.joinpath(st.session_state.selected_cellposemask)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        alpha = st.slider("Mask transparency", 0.0, 1.0, 0.5, key="sidebar_alpha")
-    with col2:
-        zIndex = st.slider("Z-slice to display", 0, hyperImageVolume.shape[0]-1, round(hyperImageVolume.shape[0]//2), key="sidebar_zIndex")
-    
-    cellposeMaskVolume = tiff.imread(selected_cellposemask_path)      
-    st.text("Which mask(s) do you want to display?")
-    show_cellpose = st.checkbox("cellpose mask", value=False)
-
-    available_channels = list(range(hyperImageVolume.shape[-1]))
-    st.session_state.channel_selected = st.selectbox("Choose image channel", available_channels, key="channel_select")
-    imageVolume = hyperImageVolume[:, :, :, st.session_state.channel_selected]
-
-    filteredImageVolume = np.where(cellposeMaskVolume, imageVolume, 0)  
-    avgFilteredIntValue = np.mean(filteredImageVolume[filteredImageVolume>0]) 
-
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(imageVolume[zIndex], cmap='gray')
-    if show_cellpose:
-        cellposeMasked = np.ma.masked_where(cellposeMaskVolume[zIndex] == 0, cellposeMaskVolume[zIndex])
-        ax.imshow(cellposeMasked, cmap='summer', alpha=alpha)
-    ax.set_title(f"Image {{st.session_state.selected_image}}")
-    ax.axis("off")
-    st.pyplot(fig)
-    st.text(f"Avg Intensity (inside mask) for this channel was {{round(avgFilteredIntValue)}}")
-
-    st.divider()
+    st.header("Parameter info and user excluded crops")
 
     st.subheader("User excluded crops")
     bad_sorted = sorted(st.session_state.bad_list)
@@ -564,6 +541,11 @@ with st.sidebar:
         with open(out_path, "w", encoding="utf-8") as f:
             f.write("\\n".join(sorted(st.session_state.bad_list)))
         st.success(f"Saved {{len(st.session_state.bad_list)}} name(s) to {{out_path}}")
+
+    #display user inputs json
+    with open(jsonFile, "r") as f:
+        user_inputs = json.load(f)
+    st.json(user_inputs)
 
     
 

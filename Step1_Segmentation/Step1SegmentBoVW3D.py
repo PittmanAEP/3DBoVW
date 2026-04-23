@@ -78,7 +78,7 @@ def main():
             filePath, saveFolder, user_inputs_json=cfg_json
         )
         parameterFileLoc = genf.save_user_inputs_json(userInputList, saveFolder / "user_inputs.json", include_help = True)
-        ##---Run Cellpose (+ optional nnUNet) segmentation ---
+        ##---Run Cellpose segmentation ---
         seghf.runCellposeSegmentation(filePath, userInputList, saveFolder)
     else:
         ##--Running from savepoint, grab save folder and user inputs from there ---
@@ -95,10 +95,10 @@ def main():
     ##-- Prepare Streamlit visualization app ---
     streamlitFolder = saveFolder.joinpath("StreamlitApp")
     streamlitFolder.mkdir(exist_ok=True) 
-    streamhf.moveTifsToFolder(saveFolder, streamlitFolder, userInputList)
+    # streamhf.moveTifsToFolder(saveFolder, streamlitFolder, userInputList)
     finalMetaDataPath = saveFolder / metaDataFileName
-    streamhf.prepareImgsForSegmentationMaxProj(saveFolder, userInputList)
-    streamhf.writeStreamlitAppSegmentation(streamlitFolder,finalMetaDataPath, parameterFileLoc, userInputList)
+    numberOfChannels = streamhf.prepareImgsForSegmentationMaxProj(saveFolder, userInputList)
+    streamhf.writeStreamlitAppSegmentation(streamlitFolder,finalMetaDataPath, parameterFileLoc, userInputList, numberOfChannels)
 
 if __name__ == "__main__":
     main()

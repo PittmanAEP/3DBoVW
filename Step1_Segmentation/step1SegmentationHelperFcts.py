@@ -7,7 +7,6 @@ def runCellposeSegmentation(filePath, userInputList, saveFolder):
     from alive_progress import alive_bar
     import numpy as np
     import warnings
-    from concurrent.futures import ThreadPoolExecutor
 
     warnings.filterwarnings("ignore", category=UserWarning, message=".*low contrast image*")
     if userInputList.verboseMessages:
