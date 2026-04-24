@@ -1,15 +1,15 @@
 
 
-def writeStreamlitAppSparseClassification(streamlitAppFolder, finalMetaDataPath, parameterFileName, zDriveLoc):
+def writeStreamlitAppSparseClassification(streamlitAppFolder, finalMetaDataPath, parameterFileName, userInputList):
     import subprocess
-
+    import json
     print("Writing Streamlit Script Now...")
+    zDriveLoc = userInputList.zDriveSaveFolder
     finalMetaDataPathZDrive = zDriveLoc / finalMetaDataPath.parent /  finalMetaDataPath.name
     parameterFileNameZDrive = zDriveLoc / finalMetaDataPath.parent /  parameterFileName.name
-
+    class_names_json = json.dumps(userInputList.classNames)
 
     script = f"""
-
 
 import json
 from matplotlib.patches import Rectangle
@@ -24,8 +24,9 @@ import plotly.graph_objects as go
 from streamlit_image_coordinates import streamlit_image_coordinates
 import heapq
 import joblib
-
+import re
 from PIL import Image
+
 
 # ---- Setup paths ----
 dataLoc = Path("{finalMetaDataPathZDrive}")
@@ -40,8 +41,116 @@ wholeDictionaryPath = savePointsFolder / "allImagesCellFeatureDict.joblib"
 lrEvalPath = dataLoc.parent / "logreg_eval"
 outputPath = dataLoc.parent / "outputGraphs"
 
+canonical_conditions = {class_names_json}
 
 #---- Define Functions --- ###
+def normalize_key(text: str) -> str:
+    '''Lowercase and remove non-alphanumeric characters for flexible matching.'''
+    return re.sub(r"[^a-z0-9]+", "", str(text).lower())
+
+
+def tokenize_condition(condition: str) -> list[str]:
+    '''
+    Split a condition like 'Par3OE_prenetrin' into robust match tokens.
+    ['par3oe', 'prenetrin']
+    '''
+    return [normalize_key(tok) for tok in re.split(r"[_\s]+", str(condition)) if tok]
+
+
+def build_condition_metadata(canonical_conditions: list[str]) -> list[dict]:
+    '''
+    Store canonical condition names plus normalized tokens.
+    Sort most specific first so longer/more detailed names win.
+    '''
+    metadata = []
+    for cond in canonical_conditions:
+        metadata.append({{
+            "name": cond,
+            "tokens": tokenize_condition(cond),
+            "norm": normalize_key(cond)
+        }})
+
+    metadata.sort(key=lambda d: (-len(d["tokens"]), -len(d["norm"])))
+    return metadata
+
+
+def infer_condition_from_image_name(image_name: str, condition_metadata: list[dict]) -> str:
+    '''
+    Match an image name to one canonical condition.
+    Returns 'Unmatched' if nothing fits.
+    '''
+    image_norm = normalize_key(image_name)
+
+    matches = []
+    for item in condition_metadata:
+        if all(tok in image_norm for tok in item["tokens"]):
+            matches.append(item["name"])
+
+    if not matches:
+        return "Unmatched"
+
+    # because metadata is sorted most specific first, take first match
+    return matches[0]
+
+
+def build_condition_color_map(canonical_conditions: list[str]) -> dict:
+    '''
+    Create a stable color map for however many conditions the user provides.
+    '''
+    palette = (
+        px.colors.qualitative.Safe
+        + px.colors.qualitative.Set2
+        + px.colors.qualitative.Dark24
+    )
+
+    color_map = {{
+        cond: palette[i % len(palette)]
+        for i, cond in enumerate(canonical_conditions)
+    }}
+    color_map["Unmatched"] = "#BDBDBD"
+    return color_map
+
+
+def add_condition_and_color_columns(
+    df: pd.DataFrame,
+    image_col: str,
+    condition_metadata: list[dict],
+    color_map: dict
+) -> pd.DataFrame:
+    '''
+    Add:
+      - condition
+      - condition_color
+    by matching image names to canonical conditions.
+    '''
+    df = df.copy()
+    df["condition"] = df[image_col].astype(str).apply(
+        lambda x: infer_condition_from_image_name(x, condition_metadata)
+    )
+    df["condition_color"] = df["condition"].map(color_map).fillna("#BDBDBD")
+    return df
+
+
+def get_condition_columns(df: pd.DataFrame, canonical_conditions: list[str]) -> tuple[list[str], dict]:
+    '''
+    Find condition columns in a dataframe by normalized string match.
+    Returns:
+      matched_cols: original dataframe column names that matched
+      rename_map: original_name -> canonical_name
+    '''
+    canonical_lookup = {{normalize_key(cond): cond for cond in canonical_conditions}}
+
+    matched_cols = []
+    rename_map = {{}}
+
+    for col in df.columns:
+        norm_col = normalize_key(col)
+        if norm_col in canonical_lookup:
+            matched_cols.append(col)
+            rename_map[col] = canonical_lookup[norm_col]
+
+    return matched_cols, rename_map
+
 
 def patch_bbox(loc_zyx, size, imgBounds):
     z, y, x = loc_zyx
@@ -54,63 +163,51 @@ def patch_bbox(loc_zyx, size, imgBounds):
 
 
 
-def get_condition_columns(df: pd.DataFrame) -> list[str]:
-    # canonical condition names (lowercase for case-insensitive match)
-    canonical_conditions = [
-        "control_prenetrin", "control_postnetrin", "par3oe_prenetrin", "par3oe_postnetrin"
-    ]
-    canon_set = set(canonical_conditions)
-
-    # match DataFrame columns case-insensitively
-    matched = []
-    for col in df.columns:
-        print(col)
-        if col.lower() in canon_set:
-            matched.append(col)
-    print(matched)
-    return matched
-
-
-def expand_cluster_rows(df):
+def expand_cluster_rows(df: pd.DataFrame, canonical_conditions: list[str]) -> pd.DataFrame:
     expanded_rows = []
 
-    # Dynamically detect condition columns: from column index 4 up to 'image_list' column (exclusive)
-    # image_list_idx = df.columns.get_loc("image_list")
-    condition_cols = get_condition_columns(df)
-    df[condition_cols] = df[condition_cols].fillna(0).astype(int)
-    print(f"condition rows were {{condition_cols}}")
+    matched_cols, rename_map = get_condition_columns(df, canonical_conditions)
+
+    if not matched_cols:
+        raise ValueError(
+            f"No condition columns matched. Expected something like: {{canonical_conditions}}"
+        )
+
+    df = df.copy().rename(columns=rename_map)
+
+    canonical_matched_cols = [rename_map[col] for col in matched_cols]
+    df[canonical_matched_cols] = df[canonical_matched_cols].fillna(0).astype(int)
+
     for _, row in df.iterrows():
-        for condition_col in condition_cols:
+        for condition_col in canonical_matched_cols:
             count = row[condition_col]
-            print(f"count was {{count}} of type {{type(count)}}")
             for _ in range(count):
                 expanded_rows.append({{
-                    'num_clusters': row['num_clusters'],
-                    'cluster_id': row['cluster_id'],
-                    'purity': row['purity'],
-                    'condition': condition_col,
-                    'image_list': row['image_list']
+                    "num_clusters": row["num_clusters"],
+                    "cluster_id": row["cluster_id"],
+                    "purity": row["purity"],
+                    "condition": condition_col,
+                    "image_list": row["image_list"]
                 }})
-    
+
     return pd.DataFrame(expanded_rows)
 
 
-def plot_expanded_cluster_composition(df_expanded, k_value, plot_title):
+def plot_expanded_cluster_composition(df_expanded, k_value, plot_title, color_map, canonical_conditions):
     df_k = df_expanded[df_expanded['num_clusters'] == k_value].copy()
     cluster_ids = sorted(df_k['cluster_id'].unique())
 
     fig = go.Figure()
 
-    # Add jittered scatter points per image
     jitter_strength = 0.1
     np.random.seed(0)
     df_k['x_jitter'] = df_k['cluster_id'] + np.random.uniform(-jitter_strength, jitter_strength, size=len(df_k))
-    df_k['y_jitter'] = np.random.uniform(-jitter_strength, jitter_strength, size=len(df_k))  # optional: fixed for horizontal spread
-    
-    condition_labels = df_k['condition'].unique()
-    default_colors = ['red', 'blue', 'green', 'orange', 'purple', 'teal']
-    color_map = {{cond: default_colors[i % len(default_colors)] for i, cond in enumerate(condition_labels)}}
+    df_k['y_jitter'] = np.random.uniform(-jitter_strength, jitter_strength, size=len(df_k))
 
+    # preserve user-defined condition order
+    condition_labels = [c for c in canonical_conditions if c in df_k['condition'].unique()]
+    if "Unmatched" in df_k['condition'].unique():
+        condition_labels.append("Unmatched")
 
     for condition in condition_labels:
         df_cond = df_k[df_k['condition'] == condition]
@@ -120,7 +217,7 @@ def plot_expanded_cluster_composition(df_expanded, k_value, plot_title):
             mode='markers',
             name=condition,
             marker=dict(
-                color=color_map[condition],
+                color=color_map.get(condition, "#BDBDBD"),
                 size=df_cond['purity'] * 10,
                 opacity=0.7,
                 line=dict(width=0.5, color='black')
@@ -136,10 +233,11 @@ def plot_expanded_cluster_composition(df_expanded, k_value, plot_title):
     fig.update_layout(
         title=plot_title,
         yaxis=dict(
-                title="Condition",
-                showticklabels=False,
-                showgrid=False,
-                zeroline=False),
+            title="Condition",
+            showticklabels=False,
+            showgrid=False,
+            zeroline=False
+        ),
         xaxis=dict(title="Cluster ID", tickmode='linear'),
         plot_bgcolor='white',
         margin=dict(l=60, r=20, t=40, b=60),
@@ -300,26 +398,35 @@ def summarize_kde_from_df(df: pd.DataFrame):
 
 # ---- Load Data ----
 dataDF = pd.read_excel(dataLoc)
-for col in dataDF.columns:
-    if dataDF[col].isin(["CON", "LOF", "control", "NIPBLOF", "NIPBLLOF"]).all():
-        dataDF.rename(columns={{col: "condition"}}, inplace=True)
-        break
-
 umapScanDF = pd.read_excel(umapScanPath)
 
-dataDF["color_group"] = dataDF["condition"].apply(
-    lambda x: "lof" if "lof" in str(x).lower() else "control")
+condition_metadata = build_condition_metadata(canonical_conditions)
+condition_color_map = build_condition_color_map(canonical_conditions)
+
+# Add condition + color columns by matching image_name
+dataDF = add_condition_and_color_columns(
+    dataDF,
+    image_col="image_name",
+    condition_metadata=condition_metadata,
+    color_map=condition_color_map
+)
+
+umapScanDF = add_condition_and_color_columns(
+    umapScanDF,
+    image_col="image_name",
+    condition_metadata=condition_metadata,
+    color_map=condition_color_map
+)
+
 
 allImgDictionary = joblib.load(wholeDictionaryPath)
 allImgDictionary = normalizeSparseCodes(allImgDictionary)
 
 
 # ---- Handle click and session state ----
-if "selected_image" not in st.session_state or "selected_mask" not in st.session_state or "selected_segmentation" not in st.session_state or "selected_cellposemask" not in st.session_state:
+if "selected_image" not in st.session_state or "selected_mask" not in st.session_state or "selected_cellposemask" not in st.session_state:
     # Default to first image in your dataframe if none selected
     st.session_state.selected_image = dataDF.iloc[0]['image_name'] # + ".tif"
-    st.session_state.selected_mask = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_nnunetmask.tif"
-    st.session_state.selected_segmentation = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_ch1signalSeg.tif"
     st.session_state.selected_cellposemask = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_CellposeMask.tif"
     st.session_state.selected_keypoints = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_keypointsOutlineRGB.tif"
 
@@ -331,17 +438,13 @@ if "apply_filter_freq" not in st.session_state:
     st.session_state.apply_filter_freq = False
 if "reset_filter_freq" not in st.session_state:
     st.session_state.reset_filter_freq = False
-if "ai_explanations" not in st.session_state:
-    st.session_state.ai_explanations = {{}}  # key: feature idx, value: text
-
 
 
 #---- Set up tabs -------
-tab1_umap, tabClusterSum, tab4_patches, tab_LR_info  = st.tabs(["UMAP/PCA Results","Cluster Summary", "Image Patches", "Logistic Regression"])
+tab1_umap, tabClusterSum, tab4_patches, tab_LR_info, tab_help = st.tabs(
+    ["UMAP Results", "Cluster Summary", "Image Patches", "Logistic Regression", "How to Use"])
 
 with tab1_umap: 
-    ##--- Load Data ---
-
     # ---- Scatter plot with click support ----
     st.header("Unsupervised classification results", divider="gray")
     st.subheader("2D UMAP results")
@@ -350,9 +453,8 @@ with tab1_umap:
 
     # Generate dropdown options: any column that does NOT contain 'word'
     color_columns = [col for col in umapScanDF.columns if "word" not in col.lower()]
-    # color_columns = [col for col in dataDF.columns if "word" not in col.lower()]
     default_color = "condition" if "condition" in color_columns else color_columns[0]
-    default_shape = "CGN" if "CGN" in color_columns else color_columns[0]
+    default_shape = "condition" if "condition" in color_columns else color_columns[0]
 
     colN, colC, colShape, colSize = st.columns([1,1,1,1])
     with colN:
@@ -365,22 +467,24 @@ with tab1_umap:
         selected_size = st.selectbox("Size points by:", color_columns, index=color_columns.index(color_columns[0]))
     # Step 3: Filter dataframe to selected neighbor number
     filtered_df = umapScanDF[umapScanDF['neighborNumber'] == selected_neighbor]
-    # filtered_df = dataDF[dataDF['neighborNumber'] == selected_neighbor]
-    color_map = {{
-        "control": "#FF007F",  # Rose
-        "lof": "#008080"       # Teal
-        }}
-    figUmap = px.scatter(filtered_df, 
-                    x='umapx',
-                    y='umapy',
-                    size = selected_size,
-                    hover_data="image_name",
-                    custom_data="image_name",
-                    symbol=selected_shape,
-                    color=selected_color_col, 
-                    color_discrete_map=color_map,
-                    size_max= 10)
-    
+    scatter_kwargs = dict(
+    data_frame=filtered_df,
+    x='umapx',
+    y='umapy',
+    size=selected_size,
+    hover_data="image_name",
+    custom_data="image_name",
+    symbol=selected_shape,
+    color=selected_color_col,
+    size_max=10
+    )
+
+    if selected_color_col == "condition":
+        scatter_kwargs["color_discrete_map"] = condition_color_map
+        scatter_kwargs["category_orders"] = {{"condition": canonical_conditions + ["Unmatched"]}}
+
+    figUmap = px.scatter(**scatter_kwargs)
+
     figUmap.update_traces(
         selected=dict(marker=dict(opacity=1, size=10)),     # Keep selected points fully visible
         unselected=dict(marker=dict(opacity=1))             # Keep unselected points fully visible too
@@ -401,68 +505,52 @@ with tab1_umap:
         clicked_point = selected_points["selection"]["points"][0]
         image_name = clicked_point["customdata"][0]  
         st.session_state.selected_image = image_name 
-        st.session_state.selected_mask = image_name.rsplit("_",1)[0]+"_nnunetmask.tif"
         st.session_state.selected_cellposemask = image_name.rsplit("_",1)[0]+"_CellposeMask.tif"
-        st.session_state.selected_segmentation = image_name.rsplit("_",1)[0]+"_ch1signalSeg.tif"
         st.session_state.selected_keypoints = image_name.rsplit("_",1)[0]+"_keypointsOutlineRGB.tif"
 
 
 
 with tabClusterSum:    
     clusterSummaryDF = pd.read_excel(clusterSummaryPath)
-    with st.container(horizontal_alignment="center", border=True):
-        st.header("Cluster Size: 2")
-        clusterSummaryDFExpand = expand_cluster_rows(clusterSummaryDF)
-        figCluster2 = plot_expanded_cluster_composition(clusterSummaryDFExpand, 2, "")
-        event_data_cluster2 = st.plotly_chart(figCluster2, on_select="rerun", selection_mode="points")
-        # Filter the summary dataframe for k=2
-        cluster_info = clusterSummaryDF[clusterSummaryDF['num_clusters'] == 2]
-        # Drop 'image_list' column before display
-        cluster_info_display = cluster_info.drop(columns=['image_list'])
-        # Show the result
-        st.dataframe(cluster_info_display)
+    st.header("Cluster Summary", divider="gray")
 
-        if event_data_cluster2 and event_data_cluster2.get("selection", {{}}).get("points"):
-            clicked_point = event_data_cluster2["selection"]["points"][0]
-            image_name = clicked_point["customdata"][0]
-            st.write(f"🖼️ Cells in this cluster are: `{{image_name}}`")
+    st.info(
+        '''
+        **How to interpret this panel**
 
-    with st.container(horizontal_alignment="center", border=True):
-        st.header("Cluster Size: 3")
-        clusterSummaryDFExpand = expand_cluster_rows(clusterSummaryDF)
-        figCluster3 = plot_expanded_cluster_composition(clusterSummaryDFExpand, 3, "")
-        event_data_cluster3 = st.plotly_chart(figCluster3, on_select="rerun", selection_mode="points")
-        # Filter the summary dataframe for k=2
-        cluster_info = clusterSummaryDF[clusterSummaryDF['num_clusters'] == 3]
-        # Drop 'image_list' column before display
-        cluster_info_display = cluster_info.drop(columns=['image_list'])
-        # Show the result
-        st.dataframe(cluster_info_display)
-        
-        if event_data_cluster3 and event_data_cluster3.get("selection", {{}}).get("points"):
-            clicked_point = event_data_cluster3["selection"]["points"][0]
-            image_name = clicked_point["customdata"][0]
-            st.write(f"🖼️ Cells in this cluster are: `{{image_name}}`")
-    
-    with st.container(horizontal_alignment="center", border=True):
-        selected_point_cluster4 = st.session_state.get('clicked_point_cluster4', None)
-        st.header("Cluster Size: 4")
-        clusterSummaryDFExpand = expand_cluster_rows(clusterSummaryDF)
-        figCluster4 = plot_expanded_cluster_composition(clusterSummaryDFExpand, 4, "")
-        event_data_cluster4 = st.plotly_chart(figCluster4, on_select="rerun", selection_mode="points")
-        # Filter the summary dataframe for k=2
-        cluster_info = clusterSummaryDF[clusterSummaryDF['num_clusters'] == 4]
-        # Drop 'image_list' column before display
-        cluster_info_display = cluster_info.drop(columns=['image_list'])
-        # Show the result
-        st.dataframe(cluster_info_display)
+        Cluster membership is determined by running **k-means on the image embedding vectors in their original feature space**,
+        not on the 2D UMAP coordinates. For each tested cluster number, this panel shows which images were assigned to each cluster
+        and how the experimental conditions are represented within those clusters.
+        '''
+    )
 
-        if event_data_cluster4 and event_data_cluster4.get("selection", {{}}).get("points"):
-            clicked_point = event_data_cluster4["selection"]["points"][0]
-            image_name = clicked_point["customdata"][0]
-            st.write(f"🖼️ Cells in this cluster are: `{{image_name}}`")
+    st.caption(
+        "The scattered points are used only to visually separate overlapping entries within each cluster. "
+        "Their vertical position and horizontal jitter do not represent meaningful spatial coordinates."
+    )
 
+    for clusterNumber in range(2, 6):
+        with st.container(horizontal_alignment="center", border=True):
+            st.subheader(f"Cluster Size: {{clusterNumber}}")
+            clusterSummaryDFExpand = expand_cluster_rows(clusterSummaryDF, canonical_conditions)
+            figCluster = plot_expanded_cluster_composition(
+                                            clusterSummaryDFExpand,
+                                            clusterNumber,
+                                            "",
+                                            condition_color_map,
+                                            canonical_conditions)
+            event_data_cluster = st.plotly_chart(figCluster, on_select="rerun", selection_mode="points")
+            # Filter the summary dataframe for k=2
+            cluster_info = clusterSummaryDF[clusterSummaryDF['num_clusters'] == clusterNumber]
+            # Drop 'image_list' column before display
+            cluster_info_display = cluster_info.drop(columns=['image_list'])
+            # Show the result
+            st.dataframe(cluster_info_display)
 
+            if event_data_cluster and event_data_cluster.get("selection", {{}}).get("points"):
+                clicked_point = event_data_cluster["selection"]["points"][0]
+                image_name = clicked_point["customdata"][0]
+                st.write(f"🖼️ Cells in this cluster are: `{{image_name}}`")
 
 
 
@@ -509,7 +597,6 @@ with tab4_patches:
         normFreqVector = image_entry["normalizedFrequencyVector"]
         normSparseCodes = image_entry["normSparseCodes"]
         tmpImg = tiff.imread(imageBasePath / img_key)
-        segImg = tiff.imread(imageBasePath / img_key.replace("ch1", "ch1signalSeg"))
         imgSize = tmpImg.shape
 
         with st.container(horizontal_alignment = "center", border = True):
@@ -520,8 +607,6 @@ with tab4_patches:
             colText, colButton = st.columns([0.75,0.25])
             with colText:
                 st.write(img_key)
-            with colButton:
-                patchSegOverlay = st.checkbox("Show segmentation overlay", value=False, key = uniqueIDCheckbox)
             with colImg:                
                 zSliderWholeImg = st.slider("Z-slice, whole img", 0, imgSize[0]-1, midZ+z0, key=uniqueIDWholeImgSlider)
                 fig, ax = plt.subplots(figsize=(1,1))
@@ -544,13 +629,10 @@ with tab4_patches:
 
             with colPatch:
                 zSliderPatches = st.slider("Z-slice", 0, zPatchSize, midZ, key = uniqueIDPatchSlides)      
-                tmpSegCrop = segImg[z0:z1, y0:y1, x0:x1]
-                seg_masked_patch = np.ma.masked_where(tmpSegCrop[zSliderPatches] == 0, tmpSegCrop[zSliderPatches])
                 tmpCrop1 = tmpImg[z0:z1, y0:y1, x0:x1]
                 fig, ax = plt.subplots(figsize=(1,1))
                 ax.imshow(tmpCrop1[zSliderPatches], cmap='gray')
-                if patchSegOverlay:
-                    ax.imshow(seg_masked_patch, cmap='spring', alpha=0.25)
+                
                 st.pyplot(fig)
             
 
@@ -600,47 +682,177 @@ with tab4_patches:
                 st.plotly_chart(sparseHistoWholeImg, use_container_width=True, key = uniqueIDImgHisto)
     
 with tab_LR_info:
-    confusionMatrixPath = lrEvalPath / f"confusion_matrix_ch{{chToAnalyzeStr}}_modeldefault.png"
-    rocCurvePath = lrEvalPath / f"roc_curve_ch{{chToAnalyzeStr}}_LR_default.png"
-    jsonInfoPath = lrEvalPath / f"metrics_ch{{chToAnalyzeStr}}_lr_default.json"
+    confusionMatrixPath = lrEvalPath / "confusion_matrix_oof.png"
+    rocCurvePath = lrEvalPath / "roc_curve_oof.png"
+    jsonInfoPath = lrEvalPath / "training_report.json"
+    classFilePath = lrEvalPath / "classification_report_oof.csv"
     with open(jsonInfoPath, "r") as f:
         jsondata = json.load(f)
 
     st.header("Reports on Logistic Regression Model ")
 
     st.image(confusionMatrixPath)
-
-    st.image(rocCurvePath)
+    if rocCurvePath.exists():
+        st.image(rocCurvePath)
+    else:
+        st.write(f"ROC curve not found, I looked here: {{rocCurvePath}}")
 
     st.json(jsondata)
 
+    if classFilePath.exists():
+        report_df = pd.read_csv(classFilePath, index_col=0)
+        st.dataframe(report_df)
+    else:
+        st.write(f"Classification report not found, I looked here: {{classFilePath}}")
 
+with tab_help:
+    st.header("How to Use This App", divider="gray")
+    st.caption("A quick guide to navigating the 3D BoVW results viewer.")
+
+    st.info(
+        '''
+        This app is designed to help you explore the outputs of the 3D BoVW pipeline.
+        You can move from global clustering patterns, to cluster composition, to
+        patch-level dictionary interpretation, and finally to logistic regression results.
+        '''
+    )
+
+    st.subheader("Recommended workflow")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(
+            '''
+            **1. Start with UMAP Results**  
+            View how images separate in feature space and color points by metadata or condition.
+
+            **2. Click a point of interest**  
+            Selecting a point updates the image shown in the sidebar.
+
+            **3. Inspect the sidebar viewer**  
+            Scroll through z-slices and optionally overlay masks or saved keypoints.
+            '''
+        )
+
+    with col2:
+        st.markdown(
+            '''
+            **4. Open Cluster Summary**  
+            See how conditions are distributed across clusters and inspect cluster purity.
+
+            **5. Open Image Patches**  
+            Investigate what a dictionary word is capturing across the dataset.
+
+            **6. Review Logistic Regression**  
+            Check confusion matrices, ROC curves, and classification reports.
+            '''
+        )
+
+    st.subheader("What each tab does")
+
+    with st.expander("UMAP Results", expanded=True):
+        st.markdown(
+            '''
+            The **UMAP Results** tab shows a 2D embedding of the image-level feature vectors.
+
+            Use this tab to:
+            - compare how images group in feature space,
+            - change the displayed neighbor number,
+            - color, shape, or size points by available metadata,
+            - click a point to load that image into the sidebar viewer.
+            '''
+        )
+
+    with st.expander("Cluster Summary"):
+        st.markdown(
+            '''
+            The **Cluster Summary** tab summarizes how images from each condition are distributed across k-means clusters computed from the full embedding vectors. This view is intended to help you compare cluster composition across different cluster numbers and identify whether clusters are condition-enriched or mixed.
+
+            Use this tab to:
+
+            - compare cluster composition across clustering solutions,
+            - inspect cluster purity,
+            - click plotted entries to view the images associated with a selected cluster.
+            '''
+        )
+
+    with st.expander("Image Patches"):
+        st.markdown(
+            '''
+            The **Image Patches** tab helps interpret dictionary words.
+
+            Use this tab to:
+            - choose a word index,
+            - optionally restrict the view to high-usage words,
+            - inspect the top-scoring patches for that word,
+            - compare the patch view, whole-image location, and sparse-code histograms.
+            '''
+        )
+
+    with st.expander("Logistic Regression"):
+        st.markdown(
+            '''
+            The **Logistic Regression** tab displays downstream classifier outputs.
+
+            This includes:
+            - confusion matrix plots,
+            - ROC curves when available,
+            - JSON training summary,
+            - text classification report.
+            '''
+        )
+
+    st.subheader("Sidebar viewer")
+    st.markdown(
+        '''
+        The sidebar always shows the **currently selected image**.  
+        From there you can:
+        - scroll through z-slices,
+        - overlay the Cellpose mask,
+        - optionally show saved keypoints,
+        - review the saved run parameters.
+        '''
+    )
+
+    st.subheader("Conditions")
+    st.markdown(
+        '''
+        The condition list shown in this app is written automatically when the pipeline
+        generates the app. Image names are matched against those conditions so that
+        plots can be colored consistently.
+        '''
+    )
+
+    st.code("\\n".join(canonical_conditions), language="text")
+
+    st.subheader("Helpful notes")
+    st.warning(
+        '''
+        - To inspect a specific image, click it in **UMAP Results** first.
+        - If an image name does not match any condition, it may be labeled **Unmatched**.
+        - The **Image Patches** tab is the best place to interpret what individual words represent.
+        '''
+    )
 
 # ---- Sidebar image viewer ----
 with st.sidebar:
     st.header("Images and parameter info")
     selected_image_path = imageBasePath.joinpath(st.session_state.selected_image) 
-    selected_mask_path = imageBasePath.joinpath(st.session_state.selected_mask)
     selected_cellposemask_path = imageBasePath.joinpath(st.session_state.selected_cellposemask)
-    selected_segmentation_path = imageBasePath.joinpath(st.session_state.selected_segmentation)
     selected_keypoints_path = imageBasePath.joinpath(st.session_state.selected_keypoints)
     
     if selected_image_path.exists():
         imageVolume = tiff.imread(selected_image_path)
-        if selected_mask_path.exists():
-            maskVolume = tiff.imread(selected_mask_path)
+        if selected_cellposemask_path.exists():
+            cellposeMaskVolume = tiff.imread(selected_cellposemask_path)
         else:
-            maskVolume = np.zeros_like(imageVolume)
-        cellposeMaskVolume = tiff.imread(selected_cellposemask_path)
-        segmentationVolume = tiff.imread(selected_segmentation_path)
+            cellposeMaskVolume = np.zeros_like(imageVolume)
 
         if selected_keypoints_path.exists():
             keypointsVolume = tiff.imread(selected_keypoints_path)
         
         
-        show_nnmask = st.checkbox("Show nnunet mask overlay", value=False)
         show_cellposemask = st.checkbox("Show cellpose mask overlay", value=True)
-        show_segmentation = st.checkbox("Show segmentation overlay", value=False)
         show_keypoints = st.checkbox("Show keypoints (if saved)?", value = False)
         colZ, colA = st.columns([0.5,0.5])
         with colZ:
@@ -648,16 +860,9 @@ with st.sidebar:
         with colA:
             alpha = st.slider("Mask transparency", 0.0, 1.0, 0.5)
 
-        masked = np.ma.masked_where(maskVolume[zIndex] == 0, maskVolume[zIndex])
         
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.imshow(imageVolume[zIndex], cmap='gray')
-        if show_nnmask:
-            masked = np.ma.masked_where(maskVolume[zIndex] == 0, maskVolume[zIndex])
-            ax.imshow(masked, cmap='spring', alpha=alpha)
-        if show_segmentation:
-            seg_masked = np.ma.masked_where(segmentationVolume[zIndex] == 0, segmentationVolume[zIndex])
-            ax.imshow(seg_masked, cmap='spring', alpha=alpha)
         if show_cellposemask:
             cellposemasked = np.ma.masked_where(cellposeMaskVolume[zIndex] == 0, cellposeMaskVolume[zIndex])
             ax.imshow(cellposemasked, cmap='summer', alpha=alpha)
@@ -693,3 +898,12 @@ with st.sidebar:
 
     fileLocation = streamlitAppFolder.joinpath("classificationApp.py")
 
+
+
+
+
+def runStreamlitApp(streamlitAppFolder):
+    import subprocess
+
+    fileLocation = streamlitAppFolder.joinpath("classificationApp.py")
+    subprocess.run(["streamlit", "run", fileLocation])

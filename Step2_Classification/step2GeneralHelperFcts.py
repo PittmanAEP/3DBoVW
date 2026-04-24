@@ -9,7 +9,7 @@ def testingImports():
     exit("Testing imports worked! You can now run the full pipeline.")
 
 
-
+ 
 
 
 from dataclasses import dataclass, field, fields, is_dataclass, asdict
@@ -21,50 +21,46 @@ import re
 @dataclass
 class UserInputs():
     ##---General Parameters---##
-    chToClassify: int = field(default = 0, metadata={"help": "The channel to classify."})
-    siftNormalization: str = field(default="none", metadata={"help": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
-    hogNormalization: str = field(default="none", metadata={"help": "How do you want to normalize the HOG descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
+    chToClassify: int = field(default = 1, metadata={"help": "The channel to classify."})
+    siftNormalization: str = field(default="5-95", metadata={"help": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
+    hogNormalization: str = field(default="5-95", metadata={"help": "How do you want to normalize the HOG descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors."})
     removeSmallBadCrops: bool = field(default = False, metadata={"help": "Do you want to remove small crops that are smaller than a certain threshold?"})
     splitSmallAndLarge: bool = field(default=False, metadata={"help": "Do you want to split the images into small and large categories for processing?"})
-    # rgbMask: bool = field(default=False, metadata={"help": "Do you want to use an RGB mask for image processing?"})
-    # segmentationAvailable: bool = field(default=False, metadata={"help": "Do you already have segmentation masks available for your images?"})
-    # segmentationChannel: int = field(default=0, metadata={"help": "If you have segmentation masks available, which channel are they in?"})
-    nJobs: int = field(default=7, metadata={"help": "How many parallel jobs do you want to run when processing HOG features? Kirby's data = 10, Chris' data = 7"})
+    nJobs: int = field(default=10, metadata={"help": "How many parallel jobs do you want to run when processing HOG features? If nJobs is too high you might run out of memory and crash the program."})
                 
-    transferFiles: bool = field(default=True, metadata={"help": "Do you want to transfer the processed files to a different location?"})
-    zDriveSaveFolder: str = field(default="/research/groups/solecgrp/home/apittman1/Data_Analysis/UnsupervisedClassification/3D_HOG/NipblLOF/Par3OE_DCC_HPC/", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
+    transferFiles: bool = field(default=True, metadata={"help": "Do you want to transfer the processed files to a different location? This is useful if you are running the pipeline on a server and want to save the results locally/different location."})
+    zDriveSaveFolder: str = field(default="/research/groups/solecgrp/home/apittman1/Data_Analysis/UnsupervisedClassification/3D_HOG/NipblLOF/conCGN_lofCGN_HPC_results/", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
     
-    useSegmentationMasks: bool = field(default=False, metadata={"help": "Do you want to use segmentation masks for image processing?"})
-    singleChannel: bool = field(default=True, metadata={"help": "Do you want to process only a single channel?"})
+    useSegmentationMasks: bool = field(default=True, metadata={"help": "Do you want to use segmentation masks for image processing?"})
+    singleChannel: bool = field(default=False, metadata={"help": "Do you want to process only a single channel?"})
     calcAttnToMask: bool = field(default = False,  metadata={"help": "Do you want to calculate the overlap of attention to masks?"})
+    runStreamlitApp: bool = field(default = True, metadata={"help": "Do you want to run the streamlit app automatically after the analysis is complete?"})
 
     #--- SIFT parameters --- ##
-    siftKeypointsLocation: str = field(default="all", metadata={"help": "Where are the keypoints localized to? Areas of high signal or low signal?"})
+    siftKeypointsLocation: str = field(default="all", metadata={"help": "Where are the keypoints localized to? Areas of high signal, low signal or both [all]?"})
     siftThreshold: float = field(default=0.09, metadata={"help": "Default 0.03, decrease to find more keypoints, 0.09 worked well for subset of Chris' 3D data"})
     siftEdgeR: int = field(default=6, metadata={"help": "Default 6, increase to find more 'edge like' keypoints"})
-    ablateMethod: str = field(default="level", metadata={"help": "Word, family, or level"})
 
     ##---HOG parameters ---##
     blockSize: int = field(default = 2, metadata={"help": "The number of cells in each block for HOG feature extraction. A block is a larger region that contains multiple cells, and the HOG features are normalized within each block. A common choice is 2, which means each block will contain 2x2 cells."})
     cellSize: int = field(default = 2, metadata={"help": "The size of each cell in the HOG feature extraction. A common choice is 2, which means each cell will be 2x2x2 voxels."})
     blockOverlap: float = field(default = 0.5, metadata={"help": "The overlap between adjacent blocks in the HOG feature extraction. A value of 0.5 means that blocks will overlap by 50%."})
-    blockOccupancy: float = field(default = 0.5, metadata={"help": "The occupancy of each block in the HOG feature extraction. A value of 0.5 means that each block will be filled to 50% capacity."})
-    zModifier: float = field(default = 0.5, metadata={"help": "A modifier for the z-axis in the HOG feature extraction."})
+    blockOccupancy: float = field(default = 0.5, metadata={"help": "How much the mask [if provided] should fill the block being analyzed. A value of 0.5 means that at least 50% of the block is covered by the mask."})
+    zModifier: float = field(default = 0.5, metadata={"help": "A modifier to help with the anisotropicity found in many microscopy volumes. This is used to scale the z-axis of the HOG feature extraction. A value of 0.5 means that the z-axis will be scaled by 0.5."})
     thetaHistogramBins: int = field(default = 18, metadata={"help": "The number of bins for the theta histogram in the HOG feature extraction. A common choice is 18, which means the theta histogram will have 18 bins."})
     phiHistogramBins: int = field(default = 36, metadata={"help": "The number of bins for the phi histogram in the HOG feature extraction. A common choice is 36, which means the phi histogram will have 36 bins."})
 
     #----Dictionary parameters---##
-    dictionarySize: int = field(default=200, metadata={"help": "The size of the visual words dictionary."})
-    sparsityAlpha: float = field(default = 0.1, metadata={"help": "The sparsity alpha parameter for dictionary construction."}) 
-    lassoAlpha: float = field(default = 1.0, metadata={"help": "The lasso alpha parameter for dictionary construction."})
+    dictionarySize: int = field(default=200, metadata={"help": "The size of the visual words codebook."})
+    sparsityAlpha: float = field(default = 0.1, metadata={"help": "The sparsity alpha parameter for codebook construction."}) 
+    lassoAlpha: float = field(default = 1.0, metadata={"help": "The lasso alpha parameter for codebook construction."})
     codebookFile: bool = field(default = True, metadata={"help": "Whether to look for a pre-existing codebook. if false, it will generate a new codebook. If true, it will look for a codebook with the name specified by the parameters above. If it can't find a codebook with that name, it will generate a new codebook."}) 
-    allImgCodebookFile: bool = field(default = True, metadata={"help": "Whether to use all images for codebook construction. If codebook file is true then this parameter determines if the code looks for a dictionary made with the entire dataset or one built on a subset of images."})
-    normalizeMethod: str = field(default = "tfidf l2", metadata={"help": "The normalization method for the features. Options are: tfidf, l2 norm, none, L2 tfidf, l2 exclude tfidf, tfidf L2, tfidf L2 threshold, l1 norm, tfidf l1, bm25 [l1 works well with sparse, l2 is convential]"})
+    allImgCodebookFile: bool = field(default = True, metadata={"help": "Whether to use all images for codebook construction. If codebook file is true then this parameter determines if the code looks for a codebook made with the entire dataset or one built on a subset of images."})
+    normalizeMethod: str = field(default = "tfidf l2", metadata={"help": "The normalization method for the feature vectors. Options are: tfidf, l2 norm, none, L2 tfidf, l2 exclude tfidf, tfidf L2, tfidf L2 threshold, l1 norm, tfidf l1"})
     normSmooth: bool = field(default = False, metadata={"help": "Whether to smooth the normalized features for Tfidf normalization."})
     normSubLinear: bool = field(default = True, metadata={"help": "Whether to use sub-linear normalization  for Tfidf normalization."})
     pooling: str = field(default="sum", metadata={"help": "The pooling method for sparse word assignment for patch analysis. Options are: sum or max."})
    
-
     ##--- Logistic Regression Parameters ---##
     runLRSweep: bool = field(default=False, metadata={"help": "Whether to run a hyperparameter sweep for the logistic regression model, managed through Weights and Biases."})
     lrPenalty: str = field(default="l2", metadata={"help": "The penalty term for the logistic regression model."})
@@ -74,9 +70,8 @@ class UserInputs():
     cGrid: tuple[float, ...] = field(default=(0.1, 0.3, 1.0, 3.0, 10.0), metadata={"help": "The grid of C values for hyperparameter tuning."})
     l1Grid: tuple[float, ...] = field(default=(0.1, 0.3, 0.5, 0.7), metadata={"help": "The grid of l1 values for hyperparameter tuning."})
     numberOfNeighbors: int = field(default=4, metadata={"help": "The number of neighbors to consider for k-NN based methods."})
-    classNames: list[str] = field(default_factory=lambda: ["Par3OE_prenetrin", "Control_prenetrin"],
-        metadata={"help": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -."}
-    )
+    classNames: list[str] = field(default_factory=lambda: ["Control", "nipblLOF"],
+        metadata={"help": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -."})
     
     @staticmethod
     def parse_name(name: str) -> list[str]:
@@ -116,9 +111,12 @@ class OutputResults():
     newCodebook: bool = field(default = False, metadata={"help": "Indicates whether a new codebook was created."})
 
 
-def getClassificationUserInputs(filePath, generateCodebook = False):
-    
-    userInputList = UserInputs()
+def getClassificationUserInputs(filePath, user_inputs_json = None, generateCodebook = False):
+    if user_inputs_json is not None:
+        userInputList = load_user_inputs_json(Path(user_inputs_json))
+    else:
+        userInputList = UserInputs()
+
     if generateCodebook:
         userInputList.splitSmallAndLarge = False
         userInputList.codebookFile = False
@@ -321,17 +319,40 @@ def _to_basic(x):
 
 
 
-# def runFromSavePoint(userInputList, filePath):
+def prepare_layout_from_raw_images(source_dir: Path, output_root: Path) -> int:
+    """
+    Build a minimal Step-1-style folder tree so Step 2 can run without segmentation:
+    output_root/allch_positiveCells/ with image files copied from source_dir (recursive).
+    Returns the number of image files copied.
+    """
+    import shutil
 
-#     chCellCropLocation = filePath / userInputList.savePointFolder
-#     allChFolder = filePath.joinpath("allch_positiveCells")
-#     if userInputList.singleChannel:
-#         allChList = list(allChFolder.rglob("*.tif"))
-#     else:
-#         allChList = list(allChFolder.rglob("*hyperstack*.tif"))
-#     sampleNumber = len(allChList)
+    source_dir = Path(source_dir).expanduser().resolve()
+    output_root = Path(output_root).expanduser().resolve()
+    if not source_dir.is_dir():
+        raise ValueError(f"Source is not a directory: {source_dir}")
 
-#     return chCellCropLocation, sampleNumber
+    dest_root = output_root / "allch_positiveCells"
+    dest_root.mkdir(parents=True, exist_ok=True)
+
+    patterns = ("*.tif", "*.tiff", "*.TIF", "*.TIFF")
+    n = 0
+    for pattern in patterns:
+        for src in source_dir.rglob(pattern):
+            if not src.is_file():
+                continue
+            rel = src.relative_to(source_dir)
+            dst = dest_root / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            n += 1
+
+    if n == 0:
+        raise ValueError(
+            f"No .tif/.tiff files found under {source_dir}. "
+            "Add images or point --init-from-raw-images at the folder that contains them."
+        )
+    return n
 
 
 def generateCodebookAllFiles(filePath,userInputList,saveFolder,outputResults):
@@ -732,7 +753,7 @@ def runSingleScaleClassificationSparse(userInputList,chCellCropLocation,saveFold
 
 
 def runLRSweep(userInputList, allImagesCellFeatureDict, saveFolder):      
-    import wandb
+    import wandb  # pyright: ignore[reportMissingImports]
     from functools import partial
     sweep_config = {
             "method": "bayes",                           
@@ -758,7 +779,7 @@ def runLRSweep(userInputList, allImagesCellFeatureDict, saveFolder):
         count=1000)  
 
 def sweep_entry(userInputList, allImagesCellFeatureDict, saveFolder):
-    import wandb
+    import wandb # pyright: ignore[reportMissingImports]
     from pathlib import Path
     import step2AnalysisHelperFcts as anaFct
 

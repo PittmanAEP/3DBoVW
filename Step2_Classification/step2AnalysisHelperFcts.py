@@ -188,6 +188,7 @@ def linearRegressMultiClasses(allImgDictionary, savePath, userInputList, tfidfOb
     from sklearn.model_selection import StratifiedKFold, cross_val_score, cross_val_predict
     from sklearn.metrics import (accuracy_score, f1_score, balanced_accuracy_score,
         roc_auc_score, confusion_matrix, classification_report)
+    import pandas as pd
 
     # ------------------------ helpers ------------------------
     def _tokenize(s: str):
@@ -456,8 +457,16 @@ def linearRegressMultiClasses(allImgDictionary, savePath, userInputList, tfidfOb
     with open(savepointsFolder / "training_report.json", "w") as f:
         json.dump(report, f, indent=2)
 
-    with open(savepointsFolder / "classification_report_oof.txt", "w") as f:
-        f.write(classification_report(y, y_oof, target_names=list(class_names))) # type: ignore
+    class_report_dict = classification_report(
+                                        y,
+                                        y_oof,
+                                        target_names=list(class_names),
+                                        output_dict=True,
+                                        zero_division=0,
+                                    )
+    # Save as CSV
+    class_report_df = pd.DataFrame(class_report_dict).transpose()
+    class_report_df.to_csv(savepointsFolder / "classification_report_oof.csv", index=True)
 
     with open(savepointsFolder / "names_and_labels.tsv", "w") as f:
         f.write("name\tlabel\tclass\n")

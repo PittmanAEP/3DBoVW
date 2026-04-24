@@ -36,6 +36,25 @@ def parse_args():
         help = "Generate the codebook from the full (non-split) dataset"
     )
 
+    p.add_argument(
+        "--user-inputs-json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="JSON file with classification parameters (same shape as user_inputs.json written to the output folder). "
+        "Omitted keys use built-in defaults. Ignored when --savepoint is used.",
+    )
+
+    p.add_argument(
+        "--init-from-images",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Folder of .tif/.tiff crops when Step 1 was skipped. Creates a new dataset root "
+        "(see --init-output-root) with allch_positiveCells/ and copies images, then exits. "
+        "Re-run Step 2 with --imagepath set to that dataset root.",
+    )
+
     return p.parse_args()
 
 
@@ -52,6 +71,22 @@ def resolve_savepoint(images_dir: Path, sp: Path | None) -> Path | None:
 
 def main():
     args = parse_args()
+
+    if args.init_from_images is not None:
+        src = Path(args.init_from_images).expanduser()
+        if not src.is_dir():
+            raise SystemExit(f"Not a directory: {src}")
+        out_root = src.parent / f"{src.name}_for_classification"
+        try:
+            n = genFct.prepare_layout_from_raw_images(src, out_root)
+        except ValueError as e:
+            raise SystemExit(str(e)) from e
+        print(
+            f"Copied {n} image file(s) into:\n  {out_root / 'allch_positiveCells'}\n"
+            f"Run Step 2 classification with:\n  --imagepath \"{out_root}\""
+        )
+        exit()
+
     filePath = args.imagepath or Path(input("Where are your images located?\n"))
     filePath = Path(filePath).expanduser()
 
@@ -79,8 +114,16 @@ def main():
 
 
     if saveFolder is None:
-        userInputList, saveFolder, outputResults = genFct.getClassificationUserInputs(filePath)
-        parameterFileLoc = genFct.save_user_inputs_json(userInputList, saveFolder / "user_inputs.json", include_help = True)
+        cfg_json = args.user_inputs_json
+        if cfg_json is not None:
+            cfg_json = Path(cfg_json).expanduser()
+            if not cfg_json.is_file():
+                raise SystemExit(f"User inputs JSON not found: {cfg_json}")
+        # userInputList, saveFolder = genf.getSegmentationUserInputs(
+        #     filePath, saveFolder, user_inputs_json=cfg_json
+        # )
+        userInputList, saveFolder, outputResults = genFct.getClassificationUserInputs(filePath, user_inputs_json=cfg_json)
+        parameterFileLoc = genFct.save_user_inputs_json(userInputList, saveFolder / "user_inputs_classification.json", include_help = True)
         chCellCropLocation, sampleNumber = genFct.compileChCellCrops(filePath,userInputList,saveFolder)
         runFromSavePoint = False
     else:
@@ -103,10 +146,13 @@ def main():
     streamlitAppFolder = saveFolder.joinpath("StreamAppClass")
     streamlitAppFolder.mkdir(exist_ok = True)  
 
-    streamFct.writeStreamlitAppSparseClassification(streamlitAppFolder, finalMetaDataPath, parameterFileLoc, userInputList.zDriveSaveFolder) 
+    streamFct.writeStreamlitAppSparseClassification(streamlitAppFolder, finalMetaDataPath, parameterFileLoc, userInputList) 
 
     if userInputList.transferFiles:
         genFct.transferResults(saveFolder, userInputList)
+    
+    if userInputList.runStreamlitApp:
+        streamFct.runStreamlitApp(streamlitAppFolder)
 
 
 
