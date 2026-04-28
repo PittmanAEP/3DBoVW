@@ -554,132 +554,72 @@ with tabClusterSum:
 
 
 
-with tab4_patches:
-    
-    st.header("Visualize patches and associated sparse codes")
-    wordColumns = [col for col in dataDF.columns if col.startswith("word_")]
-    dictionarySize = len(wordColumns)
-    wordOnlyDF = dataDF[wordColumns]
-    summedWordValues = wordOnlyDF.sum(axis=0)
-    thresholdWords = st.radio("Do you want to only show the top 95 percentile words?", ["yes", "no"])
-    if thresholdWords == "yes":
-        percentileThreshold = np.percentile(summedWordValues, 95)
-        wordsAboveThres = summedWordValues[summedWordValues >= percentileThreshold]
-        wordsToUse = [int(word.rsplit("_")[1]) for word in wordsAboveThres.index]
-    colSelectWord, colTopK = st.columns([1,1])
-    with colSelectWord:
-        if thresholdWords == "no":
-            selectedWord = st.number_input("Which word do you want to see?", min_value=0, max_value=dictionarySize, value=1, step=1)
-        else:
-            selectedWord = st.selectbox("Which word do you want to see?", options=wordsToUse)
-    with colTopK:
-        top_k = st.slider("How many patches to pull up?", min_value=1, max_value=10, value=5, step=1)
+with tab4_attn:
+    st.header("Attention Maps", divider="gray")
+    listOfWholeImgs = dataDF['image_name'].unique()
+    tmpImgName = listOfWholeImgs[st.session_state.img_index]
+    tmpAttnName = tmpImgName.replace(".tif", "") + "_attn_"
+    tmpAttnPathOptions = list(attentionMapFolder.glob(f"{{tmpAttnName}}*.tif"))
+    tmpAttnPath = next(
+        (p for p in tmpAttnPathOptions if "raw" not in p.name.lower()), None)
+    tmpImgPath = imageBasePath.joinpath(tmpImgName)
+    tmpImg = tiff.imread(tmpImgPath)
+    tmpAttn = tiff.imread(tmpAttnPath)
+    tmpImgShape = tmpImg.shape
+    show_attnMap = st.checkbox("Show attention map", value=True)
+    colZ, colA = st.columns([0.5,0.5])
+    with colZ:
+        tmpZValue = st.slider("Z-slice", 0, tmpImgShape[0]-1, round(tmpImgShape[0]/2))
+    with colA:
+        alpha = st.slider("Mask transparency", 0.0, 1.0, 0.5)
+    fig, ax = plt.subplots(figsize=(6, 6))   
+    ax.imshow(tmpImg[tmpZValue], cmap='gray') 
+    st.write(f"Image: {{tmpImgName}}")
+    if show_attnMap:
+        attnMasked = np.ma.masked_where(tmpAttn[tmpZValue] == 0, tmpAttn[tmpZValue])
+        im_attn = ax.imshow(attnMasked, cmap="coolwarm", alpha=alpha, vmin=-1, vmax=1)
+        cbar = fig.colorbar(im_attn, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("Attention value")
+    st.pyplot(fig)
 
-    results = top_patches_for_word_global(allImgDictionary, selectedWord, top_k, 5)
-    df = pd.DataFrame(results)
-    st.dataframe(df, hide_index=True)
+    st.markdown("### 📂 Image Selection")
 
-    uniqueIDCount = 0 
-    for rec in results:
-        uniqueIDCount += 1
-        uniqueIDWholeImgSlider = f"whole_key_{{uniqueIDCount}}"
-        uniqueIDPatchSlides = f"patch_key_{{uniqueIDCount}}"
-        uniqueIDCheckbox = f"check_key_{{uniqueIDCount}}"
-        uniqueIDPathHisto = f"histo_key_{{uniqueIDCount}}"
-        uniqueIDImgHisto = f"imgHisto_key_{{uniqueIDCount}}"
-        img_key   = rec["image_key"]
-        i         = rec["patch_index"]
-        loc_zyx   = rec["location"]
-        psize     = rec["patch_size"]
-        score     = rec["score"]
-        image_entry = allImgDictionary[img_key]
-        codes = image_entry["sparseCodes"]  
-        normFreqVector = image_entry["normalizedFrequencyVector"]
-        normSparseCodes = image_entry["normSparseCodes"]
-        tmpImg = tiff.imread(imageBasePath / img_key)
-        imgSize = tmpImg.shape
+    name_to_img_index = {{str(name): i for i, name in enumerate(listOfWholeImgs)}}
+    img_condition_df = (
+        dataDF[["image_name", "condition"]]
+        .drop_duplicates(subset=["image_name"])
+        .sort_values("image_name")
+    )
 
-        with st.container(horizontal_alignment = "center", border = True):
-            colImg, colPatch = st.columns([1,1])
-            z0, z1, y0, y1, x0, x1 = patch_bbox(loc_zyx, psize, imgSize)
-            midZ = int(round(z1 - z0) / 2)
-            zPatchSize = z1 - z0
-            colText, colButton = st.columns([0.75,0.25])
-            with colText:
-                st.write(img_key)
-            with colImg:                
-                zSliderWholeImg = st.slider("Z-slice, whole img", 0, imgSize[0]-1, midZ+z0, key=uniqueIDWholeImgSlider)
-                fig, ax = plt.subplots(figsize=(1,1))
-                in_slice = (z0 <= zSliderWholeImg < z1)
-                if in_slice:
-                    rect = Rectangle(
-                            (x0, y0),              # (x, y) origin in image coords
-                            x1 - x0,               # width
-                            y1 - y0,               # height
-                            linewidth=1,
-                            edgecolor='yellow',
-                            facecolor='none',
-                            linestyle='--',
-                            alpha=1.0
-                        )
-                    ax.add_patch(rect)
-                ax.set_axis_off()
-                ax.imshow(tmpImg[zSliderWholeImg], cmap='gray')
-                st.pyplot(fig)
+    sel_cols = st.columns(len(canonical_conditions))
+    for col_idx, cond_label in enumerate(canonical_conditions):
+        with sel_cols[col_idx]:
+            st.markdown(f"**{{cond_label}}**")
+            cond_names = img_condition_df.loc[
+                img_condition_df["condition"] == cond_label, "image_name"
+            ]
+            for img_name in cond_names:
+                i = name_to_img_index[str(img_name)]
+                is_current = i == st.session_state.img_index
+                label = f"**{{img_name}}**" if is_current else str(img_name)
+                if st.button(label, key=f"img_btn_attn_{{i}}"):
+                    st.session_state.img_index = i
+                    st.rerun()
 
-            with colPatch:
-                zSliderPatches = st.slider("Z-slice", 0, zPatchSize, midZ, key = uniqueIDPatchSlides)      
-                tmpCrop1 = tmpImg[z0:z1, y0:y1, x0:x1]
-                fig, ax = plt.subplots(figsize=(1,1))
-                ax.imshow(tmpCrop1[zSliderPatches], cmap='gray')
-                
-                st.pyplot(fig)
-            
+    unmatched_names = img_condition_df.loc[
+        img_condition_df["condition"] == "Unmatched", "image_name"
+    ]
+    if len(unmatched_names) > 0:
+        st.markdown("**Unmatched**")
+        for img_name in unmatched_names:
+            i = name_to_img_index[str(img_name)]
+            is_current = i == st.session_state.img_index
+            label = f"**{{img_name}}**" if is_current else str(img_name)
+            if st.button(label, key=f"img_btn_attn_{{i}}"):
+                st.session_state.img_index = i
+                st.rerun()
 
-            vec = np.asarray(normSparseCodes[i])
-            x_idx = np.arange(0,dictionarySize,1)
-            y_val = vec
-            df_bar = pd.DataFrame({{
-                "Word": x_idx,
-                "Count": y_val}})
-            
-            df_bar["Selected"] = np.where(df_bar["Word"] == int(selectedWord),
-                              "Selected word", "Other")
 
-            sparseHisto = px.bar(df_bar,
-                x = "Word",
-                y = "Count",
-                color="Selected",                           # color by category
-                color_discrete_map={{
-                    "Selected word": "gold",
-                    "Other": "lightgray"
-                }})
-            
-
-            imageFreq = np.asarray(normFreqVector)
-            x_words = np.arange(0,dictionarySize,1)
-            y_val = imageFreq
-            df_bar_wholeImg = pd.DataFrame({{
-                "Word": x_words,
-                "Count": y_val}})
-            
-            df_bar_wholeImg["Selected"] = np.where(df_bar_wholeImg["Word"] == int(selectedWord),
-                              "Selected word", "Other")
-
-            sparseHistoWholeImg = px.bar(df_bar_wholeImg,
-                x = "Word",
-                y = "Count",
-                color="Selected",                           # color by category
-                color_discrete_map={{
-                    "Selected word": "gold",
-                    "Other": "lightgray"
-                }})
-            
-            pathHisto, imgHisto = st.columns([1,1])
-            with pathHisto:
-                st.plotly_chart(sparseHisto, use_container_width=True, key = uniqueIDPathHisto)
-            with imgHisto:
-                st.plotly_chart(sparseHistoWholeImg, use_container_width=True, key = uniqueIDImgHisto)
     
 with tab_LR_info:
     confusionMatrixPath = lrEvalPath / "confusion_matrix_oof.png"
