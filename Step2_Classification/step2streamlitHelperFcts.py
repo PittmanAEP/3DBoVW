@@ -716,18 +716,17 @@ with tab_help:
             '''
         )
 
-    with st.expander("Image Patches"):
+    with st.expander("Attention Maps"):
         st.markdown(
             '''
-            The **Image Patches** tab helps interpret dictionary words.
+            The **Attention Maps** tab shows the attention map for the currently selected image.
 
             Use this tab to:
-            - choose a word index,
-            - optionally restrict the view to high-usage words,
-            - inspect the top-scoring patches for that word,
-            - compare the patch view, whole-image location, and sparse-code histograms.
+            - choose image to display
+            - choose z-slice to display
+            - choose transparency of the attention map
+            - show or hide the attention map
             '''
-        )
 
     with st.expander("Logistic Regression"):
         st.markdown(
