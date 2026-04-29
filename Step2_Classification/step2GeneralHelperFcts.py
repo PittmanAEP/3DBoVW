@@ -29,7 +29,7 @@ class UserInputs():
     nJobs: int = field(default=10, metadata={"help": "How many parallel jobs do you want to run when processing HOG features? If nJobs is too high you might run out of memory and crash the program."})
                 
     transferFiles: bool = field(default=True, metadata={"help": "Do you want to transfer the processed files to a different location? This is useful if you are running the pipeline on a server and want to save the results locally/different location."})
-    zDriveSaveFolder: str = field(default="/research/groups/solecgrp/home/apittman1/Data_Analysis/UnsupervisedClassification/3D_HOG/NipblLOF/conCGN_lofCGN_HPC_results/", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
+    zDriveSaveFolder: str = field(default="", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
     
     useSegmentationMasks: bool = field(default=True, metadata={"help": "Do you want to use segmentation masks for image processing?"})
     singleChannel: bool = field(default=False, metadata={"help": "Do you want to process only a single channel?"})
