@@ -43,6 +43,6 @@ This README is intentionally high level. Detailed setup, parameters, and usage i
 ## Quick Start
 
 After setting up the environment (and putting your tif files into a folder) run:
-<br>python Step1_Segmentation --imagepath my/image/path/here
+<br>`python Step1_Segmentation --imagepath my/image/path/here`
 <br>For classification, similarily run:
-<br>python Step2_Classification --imagepath my/segmentation/results
+<br>`python Step2_Classification --imagepath my/segmentation/results`
