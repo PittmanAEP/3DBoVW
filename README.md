@@ -38,3 +38,11 @@ This repository contains a two-step, interpretable analysis pipeline for 3D micr
 ## Notes
 
 This README is intentionally high level. Detailed setup, parameters, and usage instructions are documented separately.
+
+
+## Quick Start
+
+After setting up the environment (and putting your tif files into a folder) run:
+<br>python Step1_Segmentation --imagepath my/image/path/here
+<br>For classification, similarily run:
+<br>python Step2_Classification --imagepath my/segmentation/results
