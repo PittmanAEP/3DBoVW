@@ -1,0 +1,36 @@
+{
+  "_help": {
+    "buffer": "Padding (pixels/voxels) added around the detected region.",
+    "cellprob_threshold": "Cellpose cell probability threshold parameter. Lower values will yield more masks, including more false positives potentially.",
+    "classNames": "List of class names for analysis. For example ['Control', 'LOF'] or ['CGN_Control', 'GNP_nipblLOF']. These names are used for labeling the classes in the analysis and should correspond to the conditions/groups in your dataset. Separate conditions by _ or spaces or -.",
+    "cropValue": "Crop margin. cropStart=cropValue, cropEnd=min(-cropValue,-1).",
+    "flow_threshold": "Cellpose flow threshold parameter. Lower this is you see merged cell masks.",
+    "minSize": "Minimum cell size parameter.",
+    "requiredChannels": "Channel indices that must pass the intensity-vs-background test for a crop to be kept. segmentationChannel is never tested. Indices >= channel count in an image are skipped for that image.",
+    "segmentationChannel": "Channel index used for segmentation input.",
+    "signalThreshold": "Threshold applied to signal when generating segmentation classes.",
+    "singleChannel": "If True, expect single-channel input and skip checks for multiple channels.",
+    "tile_norm_blocksize": "Cellpose tile normalization block size parameter. Reduce if running into memory usage issues.",
+    "verboseMessages": "If True, print verbose debugging messages.",
+    "zAxis": "Z-axis parameter for 3D segmentation."
+  },
+  "buffer": 10,
+  "cellprob_threshold": 0.0,
+  "classNames": [
+    "Control",
+    "LOF"
+  ],
+  "cropValue": 10,
+  "flow_threshold": 0.4,
+  "minSize": 9000,
+  "requiredChannels": [
+    1,
+    2
+  ],
+  "segmentationChannel": 1,
+  "signalThreshold": 0.25,
+  "singleChannel": false,
+  "tile_norm_blocksize": 100,
+  "verboseMessages": true,
+  "zAxis": 0
+}
