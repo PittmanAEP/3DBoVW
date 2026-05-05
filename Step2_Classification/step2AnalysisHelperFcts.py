@@ -2215,7 +2215,9 @@ def runHarralick3D(allImageDictionary, saveFolder, userInputList):
         # print(f"working on {imageName}")
         tmpImg = imread(chFolder / imageName).astype(np.float32, copy=False)
         imgShape = tmpImg.shape
-        tmpMaskName = imageName.replace("ch1", "CellposeMask")
+        tmpMaskName = imageName.replace(
+            f"ch{userInputList.chToClassify}", userInputList.segmentationMaskString
+        )
         tmpMask = imread(chFolder / tmpMaskName)
         condition = "control" if "control" in imageName.lower() else "lof"
         tmpAttnMapName = imageName.replace(".tif","") + "_attn_" + condition + ".tif"
@@ -2453,7 +2455,10 @@ def pearsonCorrelationIntAttn(userInputList, saveFolder):
     for heatmapName in refinedNames:
         tmpAttentionMap = imread(heatmapName)
         tmpImgName = heatmapName.stem.rsplit("_attn_")[0] + ".tif"
-        tmpCellposeName = tmpImgName.rsplit(f"ch{userInputList.chToClassify}")[0] + "CellposeMask.tif"
+        tmpCellposeName = (
+            tmpImgName.rsplit(f"ch{userInputList.chToClassify}")[0]
+            + f"{userInputList.segmentationMaskString}.tif"
+        )
         tmpCorreName = heatmapName.stem.rsplit("_attn_")[0] +"_correlation.tif"
         tmpCellposeMask = imread(chCropFolder / tmpCellposeName)
         tmpImg = imread(chCropFolder / tmpImgName)
@@ -2952,8 +2957,11 @@ def make_reconstruction_error_map(allImagesCellFeatureDict, saveFolder, userInpu
         vol = imread(vol_path)  # (Z,Y,X)
         Z, Y, X = vol.shape
 
-        # nucleus mask (Cellpose); fall back to >0 of vol if not found
-        mask_name = imageName.replace(f"_ch{userInputList.chToClassify}.tif", "_CellposeMask.tif")
+        # nucleus mask; fall back to >0 of vol if not found
+        mask_name = imageName.replace(
+            f"_ch{userInputList.chToClassify}.tif",
+            f"_{userInputList.segmentationMaskString}.tif",
+        )
         mask_path = chCropFolder / mask_name
         nucleus_mask = imread(mask_path) if mask_path.exists() else (vol > 0).astype(np.uint8)
 
@@ -3801,7 +3809,9 @@ def analyzeIntensityBlobs(saveFolder, userInputList):
     for imageName in imageNameList:
         tmpImg = imread(imageName)
         tmpName = imageName.stem
-        tmpCellposeName = tmpName.split("_ch")[0] + "_CellposeMask.tif"
+        tmpCellposeName = (
+            tmpName.split("_ch")[0] + f"_{userInputList.segmentationMaskString}.tif"
+        )
         tmpCellposeImg = imread(imageFolder / tmpCellposeName)
         insideNucleus = tmpCellposeImg != 0
         nuclearVolume = np.count_nonzero(tmpCellposeImg)

@@ -32,6 +32,7 @@ class UserInputs():
     zDriveSaveFolder: str = field(default="", metadata={"help": "If you want to transfer the processed files to a different location, specify the path to the folder where you want to save the files. Make sure to include the trailing slash."})
     
     useSegmentationMasks: bool = field(default=True, metadata={"help": "Do you want to use segmentation masks for image processing?"})
+    segmentationMaskString: str = field(default="CellposeMask", metadata={"help": "The string to identify the segmentation mask in the file name. If coming from Step1, the string is 'CellposeMask'. If segmentation was run in a different way, ensure the mask name is imagename_maskStr.tif where maskStr can be any string, just specify it here."})
     singleChannel: bool = field(default=False, metadata={"help": "Do you want to process only a single channel?"})
     calcAttnToMask: bool = field(default = False,  metadata={"help": "Do you want to calculate the overlap of attention to masks?"})
     runStreamlitApp: bool = field(default = True, metadata={"help": "Do you want to run the streamlit app automatically after the analysis is complete?"})
@@ -389,7 +390,8 @@ def compileChCellCrops(filePath,userInputList, saveFolder):
     # if userInputList.rgbMask:
     #     convertRGBMasktoBinary(allChFolder, userInputList)
 
-    maskList = list(allChFolder.rglob("*ask*.tif"))
+    mask_glob = f"*{userInputList.segmentationMaskString}*.tif"
+    maskList = list(allChFolder.rglob(mask_glob))
     # segmentationList = list(allChFolder.rglob("*Seg*.tif")) if userInputList.segmentationAvailable else []
     badStringList = ["eroded", "cleaned", "edt", "rgb"]
     refinedMaskList = [mask for mask in maskList if not any(bad_str in mask.name.lower() for bad_str in badStringList)]
@@ -502,7 +504,9 @@ def removeBadSmallBlankCrops(chCellCropLocation, filePath, saveFolder, userInput
       for img in imgList:
         tmpCh0Img = imread(img)
         tmpch0ImgName = img.stem
-        tmpCellposeMaskName = chCellCropLocation.joinpath(tmpch0ImgName.replace("_ch0","_CellposeMask.tif"))
+        tmpCellposeMaskName = chCellCropLocation.joinpath(
+            tmpch0ImgName.replace("_ch0", f"_{userInputList.segmentationMaskString}.tif")
+        )
         tmpMask = imread(tmpCellposeMaskName)
         bgPixelsOnly = tmpCh0Img[tmpMask == 0]
         avgBgValue = np.mean(bgPixelsOnly)
@@ -521,51 +525,6 @@ def removeBadSmallBlankCrops(chCellCropLocation, filePath, saveFolder, userInput
 
     print(f"CGN cells removed: {userRemovedCGN} cells removed by matching with bad list and {lowSignalRemovedCGN} removed due to low Hoechst signal.")
     print(f"GNP cells removed: {userRemovedGNP} cells removed by matching with bad list and {lowSignalRemovedGNP} removed due to low Hoechst signal.")
-
-
-# def removeMismatchKirby(chCellCropLocation, saveFolder, userInputList):
-#     import pandas as pd
-#     import shutil
-#     from collections import defaultdict
-
-#     badFolderLocation = saveFolder.joinpath("badCrops")
-#     excelFileFolder = saveFolder.parent / "overlapKirbyFiles"
-#     listOfKirbyExcel = list(excelFileFolder.glob("*.xlsx"))
-#     dictKirby = defaultdict()
-#     chToClass = userInputList.chToClassify
-
-#     for file in listOfKirbyExcel:
-#         dateName = file.name.rsplit("_Segmentation")[0].lower()
-#         dataFrame = pd.read_excel(file)
-#         dictKirby[dateName] = dataFrame
-
-#     listOfAllChPosImages = list(chCellCropLocation.rglob(f"*_ch{chToClass}.tif"))
-#     movedCountCGN = 0
-#     movedCountGNP = 0
-#     keptCountGNP = 0
-#     keptCountCGN = 0
-#     for imgName in listOfAllChPosImages:
-#         nameMatchStr = imgName.name.replace(f"_ch{chToClass}.tif", ".tif")
-#         tmpDateName = imgName.name.rsplit("_image_")[0].lower()
-#         tmpDF = dictKirby[tmpDateName]
-#         iouScore = tmpDF.loc[tmpDF["cellName"].str.lower() == nameMatchStr.lower(), "overlapMeasurement"].values[0]
-#         keepImg = iouScore > 0.6
-#         if not keepImg:
-#             listOfImgsToRemove = list(chCellCropLocation.glob(f"{imgName.stem.replace(f'_ch{chToClass}', '')}*"))
-#             for fileToRemove in listOfImgsToRemove:
-#                 shutil.move(fileToRemove, badFolderLocation.joinpath(fileToRemove.name))
-#             if "CGN" in imgName.name:
-#                 movedCountCGN += 1
-#             if "GNP" in imgName.name:
-#                 movedCountGNP += 1
-#         else:
-#             if "CGN" in imgName.name:
-#                 keptCountCGN += 1
-#             if "GNP" in imgName.name:
-#                 keptCountGNP += 1
-            
-#     print(f"Total cells removed for not matching Kirby's masks: CGN: {movedCountCGN}, GNP: {movedCountGNP}")
-#     print(f"Total cells kept: {keptCountGNP} GNP cells and {keptCountCGN} CGN cells.")
 
 
     
@@ -589,16 +548,14 @@ def sortLargeAndSmallNuclei(chCellCropLocation, filePath, saveFolder, userInputL
     imageFilesList = list(chCellCropLocation.glob(f"*ch{userInputList.chToClassify}.tif"))
     for file in imageFilesList:
 
-        tmpCellposeMaskName = chCellCropLocation / file.name.replace(f"ch{userInputList.chToClassify}.tif","CellposeMask.tif")
+        tmpCellposeMaskName = chCellCropLocation / file.name.replace(
+            f"ch{userInputList.chToClassify}.tif", f"{userInputList.segmentationMaskString}.tif"
+        )
         hyperstackName = chCellCropLocation / file.name.replace(f"ch{userInputList.chToClassify}.tif","hyperstack.tif")
-        # nnMaskName = chCellCropLocation / file.name.replace(f"ch{userInputList.chToClassify}.tif","nnunetmask.tif")
         segMaskName = chCellCropLocation / file.name.replace(f"ch{userInputList.chToClassify}.tif",f"ch{userInputList.segmentationChannel}signalSeg.tif")
         ch1SegMaskName  = filePath / "allch_positiveCells" / file.name.replace(f"ch{userInputList.chToClassify}.tif",f"ch1signalSeg.tif")
         tmpCellposeMask = imread(tmpCellposeMaskName)
-        # tmpSegmentation = imread(segMaskName) if userInputList.segmentationAvailable else np.zeros_like(tmpCellposeMask)
-        tmpch1Seg = imread(ch1SegMaskName)
-        # tmpVolumeSumCellpose = np.sum(tmpCellposeMask)
-        # tmpVolumeNonZeroSeg = np.count_nonzero(tmpSegmentation)
+        tmpch1Seg = imread(ch1SegMaskName) if ch1SegMaskName.exists() else tmpCellposeMask
         tmpVolume = np.sum((tmpch1Seg != 0).astype("uint8")) #tmpVolumeSumCh1Seg, used to match Step 1 volume calculation
         # tmpVolumeNoneroCellpose = np.count_nonzero(tmpCellposeMask)
         

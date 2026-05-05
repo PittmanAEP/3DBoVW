@@ -28,6 +28,7 @@
     "removeSmallBadCrops": "Do you want to remove small crops that are smaller than a certain threshold?",
     "runLRSweep": "Whether to run a hyperparameter sweep for the logistic regression model, managed through Weights and Biases.",
     "runStreamlitApp": "Do you want to run the streamlit app automatically after the analysis is complete?",
+    "segmentationMaskString": "Substring identifying mask TIFFs under allch_positiveCells (glob *{value}*.tif) and the suffix paired with each chToClassify crop (e.g. PREFIX_CellposeMask.tif when set to CellposeMask).",
     "siftEdgeR": "Default 6, increase to find more 'edge like' keypoints",
     "siftKeypointsLocation": "Where are the keypoints localized to? Areas of high signal, low signal or both [all]?",
     "siftNormalization": "How do you want to normalize the SIFT descriptors? Options are 'asinh', '5-95', or 'none'. The 5-95 method scales the descriptor values based on the 5th and 95th percentiles, which can help mitigate the influence of outliers and improve the robustness of the descriptors.",
@@ -93,6 +94,7 @@
   "thetaHistogramBins": 18,
   "transferFiles": true,
   "useSegmentationMasks": true,
+  "segmentationMaskString": "CellposeMask",
   "zDriveSaveFolder": "",
   "zModifier": 0.5
 }

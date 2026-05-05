@@ -42,6 +42,7 @@ lrEvalPath = dataLoc.parent / "logreg_eval"
 outputPath = dataLoc.parent / "outputGraphs"
 
 canonical_conditions = {class_names_json}
+segmentation_mask_suffix = {json.dumps(userInputList.segmentationMaskString)}
 
 #---- Define Functions --- ###
 def normalize_key(text: str) -> str:
@@ -290,10 +291,10 @@ def display_cell_crop_viewer(selected_image, cell_id, cropsLoc):
     import matplotlib.pyplot as plt
 
     fullImgCropName = cropsLoc / f"{{selected_image}}_cell_crop_{{cell_id}}.tif"
-    fullMaskCropName = cropsLoc / f"{{selected_image}}_cell_crop_{{cell_id}}_cellposeMask.tif"
+    fullMaskCropName = cropsLoc / f"{{selected_image}}_cell_crop_{{cell_id}}_{{segmentation_mask_suffix}}.tif"
     
     if fullImgCropName.exists():
-        overlayCropMask = st.checkbox("Show cellpose mask", value=True)
+        overlayCropMask = st.checkbox("Show segmentation mask", value=True)
         tmpImgVol = tiff.imread(fullImgCropName)
         tmpMaskVol = tiff.imread(fullMaskCropName)
         zIndex = st.slider("Z-slice to display", 0, tmpImgVol.shape[0]-1, round(tmpImgVol.shape[0]//2))
@@ -427,7 +428,7 @@ allImgDictionary = normalizeSparseCodes(allImgDictionary)
 if "selected_image" not in st.session_state or "selected_mask" not in st.session_state or "selected_cellposemask" not in st.session_state:
     # Default to first image in your dataframe if none selected
     st.session_state.selected_image = dataDF.iloc[0]['image_name'] # + ".tif"
-    st.session_state.selected_cellposemask = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_CellposeMask.tif"
+    st.session_state.selected_cellposemask = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_" + segmentation_mask_suffix + ".tif"
     st.session_state.selected_keypoints = dataDF.iloc[0]['image_name'].rsplit("_",1)[0]+"_keypointsOutlineRGB.tif"
 
 if "apply_filter_occ" not in st.session_state:
@@ -505,7 +506,7 @@ with tab1_umap:
         clicked_point = selected_points["selection"]["points"][0]
         image_name = clicked_point["customdata"][0]  
         st.session_state.selected_image = image_name 
-        st.session_state.selected_cellposemask = image_name.rsplit("_",1)[0]+"_CellposeMask.tif"
+        st.session_state.selected_cellposemask = image_name.rsplit("_",1)[0]+"_" + segmentation_mask_suffix + ".tif"
         st.session_state.selected_keypoints = image_name.rsplit("_",1)[0]+"_keypointsOutlineRGB.tif"
 
 
@@ -747,7 +748,7 @@ with tab_help:
         The sidebar always shows the **currently selected image**.  
         From there you can:
         - scroll through z-slices,
-        - overlay the Cellpose mask,
+        - overlay the segmentation mask,
         - optionally show saved keypoints,
         - review the saved run parameters.
         '''
@@ -791,7 +792,7 @@ with st.sidebar:
             keypointsVolume = tiff.imread(selected_keypoints_path)
         
         
-        show_cellposemask = st.checkbox("Show cellpose mask overlay", value=True)
+        show_cellposemask = st.checkbox("Show segmentation mask overlay", value=True)
         show_keypoints = st.checkbox("Show keypoints (if saved)?", value = False)
         colZ, colA = st.columns([0.5,0.5])
         with colZ:

@@ -821,7 +821,9 @@ def detectSIFTKeypoints(saveFolder, userInputList):
         if userInputList.siftNormalization == "none":
             tmpImgScaled = tmpImg
         if userInputList.useSegmentationMasks:
-            maskName = str(imageName.name).replace(f"ch{userInputList.chToClassify}", "CellposeMask")  
+            maskName = str(imageName.name).replace(
+                f"ch{userInputList.chToClassify}", userInputList.segmentationMaskString
+            )
             tmpMask = imread(cropFolder / maskName)
         else:
             tmpMask = np.ones_like(tmpImg)
@@ -1053,16 +1055,23 @@ def extractKeypointsFeatures(chCellCropLocation,userInputList, saveFolder, allIm
     import HOG3D_Keypoints as hg
     from joblib import Parallel, delayed
     
-    maskString = "cellposemask"
+    mask_string_lc = userInputList.segmentationMaskString.lower()
     allFileList = list(chCellCropLocation.glob("*.tif"))
-    maskFileList = [file for file in allFileList if f"{maskString}.tif" in file.name.lower()]
+    maskFileList = [file for file in allFileList if f"{mask_string_lc}.tif" in file.name.lower()]
     print("running 3D HOG on keypoints now...")
 
     def process_single_file(imageName, keypointList):
         print(f"Processing {imageName}")
         tmpCellString = imageName.lower().rsplit(f"_ch{userInputList.chToClassify}", 1)[0]
         if userInputList.useSegmentationMasks:
-            cellMask = next((m for m in maskFileList if tmpCellString == m.stem.lower().rsplit(f"_{maskString}", 1)[0]), None)
+            cellMask = next(
+                (
+                    m
+                    for m in maskFileList
+                    if tmpCellString == m.stem.lower().rsplit(f"_{mask_string_lc}", 1)[0]
+                ),
+                None,
+            )
             if cellMask is None:
                 print(f"Warning: no mask found for {imageName.name}")
                 return None
@@ -1842,7 +1851,7 @@ def appendWordLocalizationData(allImagesCellFeatureDict):
 #     print("Now thresholding signal...")   
 #     chToThresh = str(userInputList.chToClassify) 
 #     imgFileList = list(saveFolder.rglob("*hyperstack.tif"))
-#     maskFileList = list(saveFolder.rglob("*_CellposeMask.tif"))
+#     maskFileList = list(saveFolder.rglob(f"*_{userInputList.segmentationMaskString}.tif"))
 #     for file in imgFileList:
 #         print(f"Working on...{file.stem}")
 #         fileName = file.stem.replace("hyperstack","")
